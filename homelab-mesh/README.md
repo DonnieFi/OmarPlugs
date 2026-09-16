@@ -1,6 +1,6 @@
 # Lanarchy (`donnie.homelab-mesh`)
 
-Homelab status in the Omarchy bar. **Letterbox topology map** (default) plus a **Pulse-style list** tab. Setup edits v2 `inventory.json` (machines, LAN hosts, proxies).
+Homelab status in the Omarchy bar. The **list dash** is the default: compact colour-light rows for machines and grouped services (Home Assistant, Bernie, Cameras, Pi-hole…). **LAN** / **PROXIES** toggles unhide leftover noisy hosts. Map is the letterbox of the same machines + services. Setup edits v2 `inventory.json`.
 
 - User config: `~/.config/omarchy/plugins/homelab-mesh/`
 - Plugin id: `donnie.homelab-mesh` (rename optional later)
@@ -24,7 +24,8 @@ Symlink or copy this folder to `~/.config/omarchy/plugins/homelab-mesh/`. Edit `
 
 | Script | Role |
 |--------|------|
-| `probe.py` | Glance JSON (`machines`, `lan`, `proxies`); appends local history + notify streak sidecars |
+| `daemon.py` | Singleton collector; writes `snapshot.json` every 15s |
+| `probe.py` | One-shot glance + `wol <id\|mac>`; also used by the daemon |
 | `inventory_cli.py` | `dump` / `migrate` / `write` for QML |
 | `history_cli.py` | `sparkline --id <node>` for map sparklines |
 

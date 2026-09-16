@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from edges_lib import resolve_edges
+from groups_lib import group_nodes
 from inventory_lib import (
     DEFAULT_INVENTORY,
     load_inventory,
@@ -23,7 +24,8 @@ def cmd_dump(path: Path) -> int:
         "schemaVersion": inv["schemaVersion"],
         "nodes": inv["nodes"],
         "migratedFromV1": bool(inv.get("migratedFromV1")),
-        "edges": resolve_edges(inv),
+        "edges": resolve_edges(inv, services=group_nodes(inv.get("nodes") or []).get("services")),
+        "groups": group_nodes(inv.get("nodes") or []).get("services"),
     }
     if isinstance(inv.get("settings"), dict):
         out["settings"] = inv["settings"]

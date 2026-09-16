@@ -116,6 +116,11 @@ def normalize_node(raw: dict) -> dict:
     band = _as_str(raw.get("mapBand"))
     if band:
         node["mapBand"] = band
+    group = _as_str(raw.get("group"))
+    if group:
+        node["group"] = slugify(group)
+    if raw.get("hidden") is True:
+        node["hidden"] = True
 
     dns = _as_str(raw.get("dns")) or _as_str(raw.get("host"))
     ip = _as_str(raw.get("ip"))

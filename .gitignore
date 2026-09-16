@@ -54,5 +54,7 @@ homelab-mesh/*.log
 *.swp
 *~
 homelab-mesh/.probe.lock
+homelab-mesh/.daemon.lock
+homelab-mesh/snapshot.json
 homelab-mesh/history.json*
 homelab-mesh/notify-state.json

@@ -29,7 +29,7 @@ def pick_hub_id(nodes: list[dict]) -> str | None:
     return _first_caddy_proxy(nodes) or _first_machine_id(nodes)
 
 
-def derive_default_edges(nodes: list[dict], *, max_lan: int = 24) -> list[dict]:
+def derive_default_edges(nodes: list[dict], *, max_lan: int = 24, services: list[dict] | None = None) -> list[dict]:
     hub = pick_hub_id(nodes)
     if not hub:
         return []
@@ -39,6 +39,12 @@ def derive_default_edges(nodes: list[dict], *, max_lan: int = 24) -> list[dict]:
             nid = str(n.get("id") or "")
             if nid:
                 edges.append({"from": nid, "to": hub, "kind": "hub"})
+    if services:
+        for svc in services:
+            sid = str(svc.get("id") or "")
+            if sid and sid != hub and hub not in (svc.get("member_ids") or []):
+                edges.append({"from": hub, "to": sid, "kind": "service"})
+        return edges
     lan_count = 0
     for n in nodes:
         if str(n.get("type") or "") != "host":
@@ -52,7 +58,7 @@ def derive_default_edges(nodes: list[dict], *, max_lan: int = 24) -> list[dict]:
     return edges
 
 
-def resolve_edges(inv: dict) -> list[dict]:
+def resolve_edges(inv: dict, services: list[dict] | None = None) -> list[dict]:
     raw = inv.get("edges")
     nodes = inv.get("nodes") if isinstance(inv.get("nodes"), list) else []
     if isinstance(raw, list) and raw:
@@ -65,7 +71,7 @@ def resolve_edges(inv: dict) -> list[dict]:
             if fr and to:
                 out.append({"from": fr, "to": to, "kind": str(e.get("kind") or "custom")})
         return out
-    return derive_default_edges(nodes)
+    return derive_default_edges(nodes, services=services)
 
 
 def edge_rtt_ms(edge: dict, status_by_id: dict[str, dict]) -> float | None:

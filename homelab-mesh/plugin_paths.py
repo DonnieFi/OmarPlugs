@@ -81,3 +81,7 @@ def history_path() -> Path:
 
 def notify_state_path() -> Path:
     return plugin_config_dir() / "notify-state.json"
+
+
+def snapshot_path() -> Path:
+    return plugin_config_dir() / "snapshot.json"

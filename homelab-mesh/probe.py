@@ -23,9 +23,10 @@ from history_lib import (
     set_last_counters,
     set_node_meta,
 )
+from groups_lib import attach_status, group_nodes, leftover_rows
 from inventory_lib import load_inventory, nodes_by_type, probe_target
 from notify_lib import process_probe_glance
-from plugin_paths import inventory_path, probe_lock
+from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
 from telemetry_lib import (
     collect_machine,
     dns_time_ms,
@@ -35,6 +36,7 @@ from telemetry_lib import (
     primary_link,
     rates_from,
     resolve_ipv4,
+    send_wol,
     tcp_timing,
 )
 
@@ -189,20 +191,40 @@ def remember_macs(hist: dict, rows: list[dict]) -> None:
             set_node_meta(hist, row["id"], {"mac": mac, "ip": ip})
 
 
+def cmd_wol(target: str) -> int:
+    """Wake a machine by inventory id or MAC."""
+    mac = str(target or "").strip()
+    if ":" not in mac and "-" not in mac:
+        mac = str(node_meta(load_history(), mac).get("mac") or "")
+        snap = load_json_or(snapshot_path(), {}) or {}
+        for row in snap.get("machines") or []:
+            if str(row.get("id") or "") == str(target or "") and row.get("mac"):
+                mac = str(row["mac"])
+                break
+    ok = send_wol(mac)
+    print(json.dumps({"ok": ok, "mac": mac}))
+    return 0 if ok else 1
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "wol":
+        return cmd_wol(sys.argv[2] if len(sys.argv) > 2 else "")
     with probe_lock() as acquired:
         if not acquired:
             print(json.dumps({"error": "another probe is still running"}, indent=2))
             return 1
-        return run_probe()
+        run_probe(write_stdout=True)
+        return 0
 
 
-def run_probe() -> int:
+def run_probe(*, write_stdout: bool = True) -> dict:
     try:
         inv = load_inventory(INVENTORY)
     except Exception as e:
-        print(json.dumps({"error": f"inventory: {e}"}, indent=2))
-        return 1
+        err = {"error": f"inventory: {e}"}
+        if write_stdout:
+            print(json.dumps(err, indent=2))
+        return err
     nodes = inv.get("nodes") or []
     grouped = nodes_by_type(nodes)
     hist = load_history()
@@ -216,11 +238,19 @@ def run_probe() -> int:
         lan = [f.result() for f in lan_f]
         proxies = [f.result() for f in proxies_f]
         meta = meta_f.result()
+    by_id: dict[str, dict] = {}
+    for row in machines + lan + proxies:
+        by_id[str(row.get("id") or "")] = row
+    dash = group_nodes(nodes)
+    quiet_lan, quiet_proxies = leftover_rows(nodes, by_id, dash["grouped_ids"])
     payload = {
         "as_of": now_iso(),
         "machines": machines,
         "lan": lan,
         "proxies": proxies,
+        "groups": attach_status(dash, by_id),
+        "quiet_lan": quiet_lan,
+        "quiet_proxies": quiet_proxies,
         "lan_meta": meta,
     }
     ts = payload["as_of"]
@@ -258,9 +288,14 @@ def run_probe() -> int:
         process_probe_glance(payload)
     except Exception:
         pass
-    json.dump(payload, sys.stdout, indent=2)
-    sys.stdout.write("\n")
-    return 0
+    try:
+        atomic_write_json(snapshot_path(), payload, indent=None)
+    except OSError:
+        pass
+    if write_stdout:
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    return payload
 
 
 if __name__ == "__main__":

@@ -30,8 +30,8 @@ Panel {
 
   // glance | setup | form
   property string view: "glance"
-  // map (default) | list within glance
-  property string glanceTab: "map"
+  // list is the dash; map is the letterbox
+  property string glanceTab: "list"
   property var mapEdges: []
   property var mapLayout: []
   property string mapSelectedId: ""
@@ -43,6 +43,13 @@ Panel {
   property var machines: []
   property var lan: []
   property var proxies: []
+  property var groups: []
+  property var quietLan: []
+  property var quietProxies: []
+  property var lanMeta: ({})
+  property bool showLan: false
+  property bool showProxies: false
+  property string actionStatus: ""
 
   // setup / form state
   property var nodes: []
@@ -72,14 +79,160 @@ Panel {
 
   function statusColor(status) {
     var s = String(status || "unknown")
-    if (s === "up") return root.foreground
+    if (s === "up") return "#6fbf73"
+    if (s === "degraded") return "#d4a017"
     if (s === "down") return root.urgent
     return root.muted
   }
 
+  function fmtRate(bps) {
+    var v = Number(bps)
+    if (!isFinite(v) || v < 0) return ""
+    if (v < 1000) return Math.round(v) + "B"
+    if (v < 1000000) return Math.round(v / 1000) + "k"
+    return (v / 1000000).toFixed(1) + "M"
+  }
+
+  function machineMetric(row) {
+    if (!row) return "—"
+    var bits = []
+    var link = row.link
+    if (link && link.speed_mbit) {
+      var mb = Number(link.speed_mbit)
+      if (link.kind === "wifi") bits.push(Math.round(mb) + "M wifi")
+      else if (mb >= 1000) bits.push((mb / 1000) + "G")
+      else bits.push(Math.round(mb) + "M")
+      if (link.grade === "degraded") bits.push("slow")
+    }
+    if (row.rates && row.rates.rx_bps != null) {
+      var r = root.fmtRate(row.rates.rx_bps)
+      if (r) bits.push("↓" + r)
+    }
+    if (row.uptime_s != null) {
+      var up = root.uptimeText(row.uptime_s)
+      if (up) bits.push(up)
+    }
+    bits.push(root.rttText(row))
+    return bits.join("  ")
+  }
+
+  function uptimeText(secs) {
+    var n = Number(secs)
+    if (!isFinite(n) || n <= 0) return ""
+    if (n < 3600) return Math.round(n / 60) + "m up"
+    if (n < 86400) return Math.round(n / 3600) + "h up"
+    return (Math.round(n / 86400 * 10) / 10) + "d up"
+  }
+
+  function displayStatus(row) {
+    if (!row) return "unknown"
+    if (String(row.status) === "up" && row.link && row.link.grade === "degraded")
+      return "degraded"
+    return String(row.status || "unknown")
+  }
+
+  function sshHostFor(row) {
+    if (row && row.host) return String(row.host)
+    var inv = row ? root.invNodeById(row.id) : null
+    if (inv && inv.dns) return String(inv.dns)
+    return ""
+  }
+
+  function openSsh(row) {
+    var host = root.sshHostFor(row)
+    if (!host) return
+    Quickshell.execDetached(["uwsm-app", "--", "xdg-terminal-exec", "--app-id=org.omarchy.terminal", "-e", "ssh", host])
+  }
+
+  function wakeNode(row) {
+    if (!row) return
+    var target = String(row.mac || row.id || "")
+    if (!target) return
+    root.actionStatus = "Waking " + String(row.label || row.id)
+    actionProc.command = ["python3", root.pluginDir + "/probe.py", "wol", target]
+    actionProc.running = true
+  }
+
+  function serviceMetric(row) {
+    if (!row) return "—"
+    var frac = String(row.up || 0) + "/" + String(row.total || 0)
+    var ms = root.rttText(row)
+    return ms === "—" ? frac : frac + "  " + ms
+  }
+
+  function serviceLights(row) {
+    if (!row || !row.members) return []
+    var out = []
+    for (var i = 0; i < row.members.length; i++) out.push(String(row.members[i].status || "unknown"))
+    return out
+  }
+
+  function hubGroup() {
+    var i
+    for (i = 0; i < root.groups.length; i++) {
+      if (String(root.groups[i].key || "") === "caddy") return root.groups[i]
+    }
+    return root.groups.length ? root.groups[0] : null
+  }
+
+  function lanClusterRow() {
+    var rows = root.quietLan
+    var up = 0
+    var down = 0
+    var lights = []
+    var i, s
+    for (i = 0; i < rows.length; i++) {
+      s = String(rows[i].status || "unknown")
+      if (i < 8) lights.push(s)
+      if (s === "up") up++
+      else if (s === "down") down++
+    }
+    var status = "unknown"
+    if (down && !up) status = "down"
+    else if (down || (up && up < rows.length)) status = "degraded"
+    else if (up) status = "up"
+    return {
+      id: "__lan__",
+      label: "LAN",
+      kind: "lan",
+      status: status,
+      up: up,
+      total: rows.length,
+      lights: lights,
+      members: rows,
+      metric: root.lanClusterMetric(up, rows.length)
+    }
+  }
+
+  function lanClusterMetric(up, total) {
+    var bits = [(up + "/" + total) + (total ? " leftover" : "")]
+    var meta = root.lanMeta || {}
+    if (meta.dns_ms != null) bits.push("dns " + Math.round(Number(meta.dns_ms)) + "ms")
+    if (meta.neighbors != null) bits.push(meta.neighbors + " neigh")
+    if (meta.unknown) bits.push(meta.unknown + " new")
+    return bits.join(" · ")
+  }
+
+  function rebuildMapEdges() {
+    var hubRow = root.hubGroup()
+    var hub = hubRow ? String(hubRow.id) : (root.machines.length ? String(root.machines[0].id || "") : "")
+    var edges = []
+    var i
+    for (i = 0; i < root.machines.length; i++)
+      edges.push({ from: String(root.machines[i].id || ""), to: hub, kind: "hub" })
+    for (i = 0; i < root.groups.length; i++) {
+      if (String(root.groups[i].id) === hub) continue
+      edges.push({ from: hub, to: String(root.groups[i].id), kind: "service" })
+    }
+    if (root.quietLan.length)
+      edges.push({ from: hub, to: "__lan__", kind: "lan" })
+    root.mapEdges = edges
+  }
+
   function glanceRowById(id) {
     var sid = String(id || "")
-    var bands = [root.machines, root.lan, root.proxies]
+    if (sid === "__lan__") return root.lanClusterRow()
+    var bands = [root.machines, root.groups, root.lan, root.proxies, root.quietLan, root.quietProxies]
     var b, i, row
     for (b = 0; b < bands.length; b++) {
       for (i = 0; i < bands[b].length; i++) {
@@ -100,6 +253,13 @@ Panel {
   }
 
   function edgePulseSec(rowA, rowB) {
+    function rx(row) {
+      if (!row || !row.rates || row.rates.rx_bps == null) return 0
+      var n = Number(row.rates.rx_bps)
+      return isFinite(n) ? n : 0
+    }
+    var bps = Math.max(rx(rowA), rx(rowB))
+    if (bps > 500) return Math.max(0.4, Math.min(2.8, 120000 / bps))
     var ms = 0
     if (rowA && rowA.rtt_ms != null) ms = Math.max(ms, Number(rowA.rtt_ms))
     if (rowB && rowB.rtt_ms != null) ms = Math.max(ms, Number(rowB.rtt_ms))
@@ -111,29 +271,57 @@ Panel {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
     var layout = []
-    function band(rows, subline, y, cap) {
-      var n = cap > 0 ? Math.min(rows.length, cap) : rows.length
+    var cardW = Style.space(108)
+    var cardH = root.mapCardH
+    function place(row, subline, x, y, wCard, hCard, kind, metric, lights) {
+      layout.push({
+        id: String(row.id || ""),
+        label: String(row.label || row.id || ""),
+        subline: subline,
+        status: root.displayStatus(row),
+        rtt_ms: row.rtt_ms,
+        x: x,
+        y: y,
+        w: wCard,
+        h: hCard,
+        kind: kind || subline,
+        metric: metric || "",
+        lights: lights || []
+      })
+    }
+    function rowBand(rows, subline, y, kind, metricFn, lightsFn) {
+      var n = rows.length
       if (n <= 0) return
       var gap = w / (n + 1)
-      var cardW = Math.max(Style.space(72), Math.min(Style.space(108), gap - Style.space(6)))
-      for (var i = 0; i < n; i++) {
-        var row = rows[i]
-        layout.push({
-          id: String(row.id || ""),
-          label: String(row.label || row.id || ""),
-          subline: subline || String(row.check || "proxy"),
-          status: String(row.status || "unknown"),
-          rtt_ms: row.rtt_ms,
-          x: gap * (i + 1) - cardW / 2,
-          y: y,
-          w: cardW,
-          h: root.mapCardH
-        })
+      var cw = Math.max(Style.space(96), Math.min(cardW, gap - Style.space(8)))
+      var i, row
+      for (i = 0; i < n; i++) {
+        row = rows[i]
+        place(row, subline, gap * (i + 1) - cw / 2, y, cw, cardH, kind,
+              metricFn ? metricFn(row) : root.rttText(row),
+              lightsFn ? lightsFn(row) : [])
       }
     }
-    band(root.machines, "machine", Style.space(28), 0)
-    band(root.lan, "host", Style.space(172), root.mapLanCap)
-    band(root.proxies, "", Style.space(316), 0)
+    rowBand(root.machines, "machine", Style.space(22), "machine", root.machineMetric, null)
+    var hub = root.hubGroup()
+    var hubW = Style.space(128)
+    var hubH = Style.space(84)
+    if (hub) {
+      place(hub, "gateway", (w - hubW) / 2, Style.space(112), hubW, hubH, "hub",
+            root.serviceMetric(hub), root.serviceLights(hub))
+    }
+    var svcs = []
+    var i
+    for (i = 0; i < root.groups.length; i++) {
+      if (hub && String(root.groups[i].id) === String(hub.id)) continue
+      svcs.push(root.groups[i])
+    }
+    rowBand(svcs, "service", Style.space(214), "service", root.serviceMetric, root.serviceLights)
+    if (root.quietLan.length) {
+      var cluster = root.lanClusterRow()
+      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(312),
+            Style.space(300), Style.space(86), "lan", cluster.metric, cluster.lights)
+    }
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
   }
@@ -199,20 +387,25 @@ Panel {
     root.machines = data.machines instanceof Array ? data.machines : []
     root.lan = data.lan instanceof Array ? data.lan : []
     root.proxies = data.proxies instanceof Array ? data.proxies : []
+    root.groups = data.groups instanceof Array ? data.groups : []
+    root.quietLan = data.quiet_lan instanceof Array ? data.quiet_lan : []
+    root.quietProxies = data.quiet_proxies instanceof Array ? data.quiet_proxies : []
+    root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
     root.error = ""
     root.loading = false
+    root.rebuildMapEdges()
     root.recalcMapLayout()
   }
 
+  function ensureDaemon() {
+    if (daemonProc.running) return
+    daemonProc.command = ["python3", root.pluginDir + "/daemon.py"]
+    daemonProc.running = true
+  }
+
   function refresh() {
-    root.loading = true
-    root.expectedStop = false
-    if (probeProc.running) {
-      root.expectedStop = true
-      probeProc.running = false
-    }
-    probeProc.command = ["python3", root.pluginDir + "/probe.py"]
-    probeProc.running = true
+    root.ensureDaemon()
+    snapshotView.reload()
   }
 
   function slugify(label) {
@@ -249,9 +442,27 @@ Panel {
     if (root.opened) refresh()
   }
 
+  function groupMemberIds(sid) {
+    var row = root.glanceRowById(sid)
+    if (row && row.member_ids) return row.member_ids
+    if (row && row.members && row.id && String(row.id).indexOf("svc-") === 0) {
+      var ids = []
+      var i
+      for (i = 0; i < row.members.length; i++) ids.push(String(row.members[i].id || ""))
+      return ids
+    }
+    return [String(sid || "")]
+  }
+
   function notifyEnabledForNodeId(sid) {
-    var inv = root.invNodeById(sid)
-    return !inv || inv.notify !== false
+    if (String(sid) === "__lan__") return true
+    var ids = root.groupMemberIds(sid)
+    var i, inv
+    for (i = 0; i < ids.length; i++) {
+      inv = root.invNodeById(ids[i])
+      if (inv && inv.notify === false) return false
+    }
+    return true
   }
 
   function invNodeById(sid) {
@@ -264,18 +475,19 @@ Panel {
   }
 
   function mapCardTooltip(id, label, status, notifyOn) {
-    var row = root.glanceRowById(id)
-    var lines = [
-      String(label || id),
-      String(status || "unknown").toUpperCase() + " · " + root.rttText(row)
-    ]
-    var inv = root.invNodeById(id)
-    if (inv) {
-      var tgt = root.nodeTarget(inv)
-      if (tgt) lines.push(tgt)
+    if (String(id) === "__lan__") {
+      var cluster = root.lanClusterRow()
+      var lines = [cluster.metric, "Open List with LAN on for every leftover host"]
+      var unknown = (root.lanMeta && root.lanMeta.unknown_hosts) ? root.lanMeta.unknown_hosts : []
+      var u
+      for (u = 0; u < unknown.length && u < 6; u++)
+        lines.push("new " + String(unknown[u].ip || "") + " " + String(unknown[u].mac || ""))
+      return lines.join("\n")
     }
-    lines.push("Notify " + (notifyOn ? "on" : "off"))
-    return lines.join("\n")
+    var row = root.glanceRowById(id)
+    var tip = root.listRowTooltip(row)
+    if (tip) return tip
+    return String(label || id) + "\n" + String(status || "unknown").toUpperCase() + "\nNotify " + (notifyOn ? "on" : "off")
   }
 
   function listRowTooltip(row) {
@@ -285,6 +497,25 @@ Panel {
       String(row.label || id),
       String(row.status || "unknown").toUpperCase() + " · " + root.rttText(row)
     ]
+    if (row.members) {
+      var i, m, bit
+      for (i = 0; i < row.members.length; i++) {
+        m = row.members[i]
+        bit = String(m.role || m.id) + " " + String(m.status || "")
+        if (m.ttfb_ms != null) bit += " " + Math.round(Number(m.ttfb_ms)) + "ms ttfb"
+        lines.push(bit)
+      }
+    }
+    if (row.link && row.link.speed_mbit)
+      lines.push(String(row.link.iface || "link") + " " + String(row.link.speed_mbit) + " Mbit"
+        + (row.link.grade === "degraded" ? " (slow port)" : ""))
+    if (row.rates && row.rates.rx_bps != null)
+      lines.push("↓" + root.fmtRate(row.rates.rx_bps) + "  ↑" + root.fmtRate(row.rates.tx_bps))
+    if (row.uptime_s != null) {
+      var up = root.uptimeText(row.uptime_s)
+      if (up) lines.push(up)
+    }
+    if (row.mac) lines.push("mac " + String(row.mac))
     var inv = root.invNodeById(id)
     if (inv) {
       var tgt = root.nodeTarget(inv)
@@ -296,13 +527,18 @@ Panel {
 
   function toggleNotifyForNodeId(sid) {
     var id = String(sid || "")
-    if (!id) return
+    if (!id || id === "__lan__") return
+    var targets = {}
+    var ids = root.groupMemberIds(id)
+    var i
+    for (i = 0; i < ids.length; i++) targets[String(ids[i])] = true
+    var turnOn = !root.notifyEnabledForNodeId(id)
     var next = []
-    var i, n
+    var n
     for (i = 0; i < root.nodes.length; i++) {
       n = JSON.parse(JSON.stringify(root.nodes[i]))
-      if (String(n.id) === id) {
-        if (n.notify === false) delete n.notify
+      if (targets[String(n.id)]) {
+        if (turnOn) delete n.notify
         else n.notify = false
       }
       next.push(n)
@@ -315,7 +551,9 @@ Panel {
     if (root.loading) return "PROBING"
     if (root.error) return "ERROR"
     var down = 0
-    var bands = [root.machines, root.lan, root.proxies]
+    var bands = [root.machines, root.groups]
+    if (root.showLan) bands.push(root.quietLan)
+    if (root.showProxies) bands.push(root.quietProxies)
     var b, i
     for (b = 0; b < bands.length; b++) {
       for (i = 0; i < bands[b].length; i++) {
@@ -398,7 +636,21 @@ Panel {
     }
     root.nodes = data.nodes instanceof Array ? data.nodes : []
     root.mapEdges = data.edges instanceof Array ? data.edges : []
+    if (!root.asOf) {
+      var seeded = []
+      var i, n
+      for (i = 0; i < root.nodes.length; i++) {
+        n = root.nodes[i]
+        if (String(n.type || "") === "machine")
+          seeded.push({ id: String(n.id || ""), label: String(n.label || n.id || ""), status: "unknown" })
+      }
+      if (seeded.length) root.machines = seeded
+      if (data.groups instanceof Array) root.groups = data.groups
+    } else if (root.groups.length === 0 && data.groups instanceof Array) {
+      root.groups = data.groups
+    }
     root.inventoryLoading = false
+    root.rebuildMapEdges()
     root.recalcMapLayout()
     if (data.migratedFromV1) {
       // migrate once on first setup open when still on v1 file
@@ -491,8 +743,8 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       root.view = "glance"
-      root.glanceTab = "map"
       root.mapSelectedId = ""
+      root.ensureDaemon()
       loadInventory()
       refresh()
     } else {
@@ -501,30 +753,37 @@ Panel {
     }
   }
 
+  FileView {
+    id: snapshotView
+    path: root.pluginDir + "/snapshot.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      if (!root.opened) return
+      root.applyPayload(text())
+    }
+  }
+
   Process {
-    id: probeProc
+    id: daemonProc
+    stdout: StdioCollector { waitForEnd: false }
+    stderr: StdioCollector { waitForEnd: false }
+  }
+
+  Process {
+    id: actionProc
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        if (!root.opened || root.expectedStop) return
-        root.applyPayload(String(text || ""))
+        var data = {}
+        try { data = JSON.parse(text || "{}") || {} } catch (e) { data = {} }
+        if (data.ok) root.actionStatus = "Magic packet sent" + (data.mac ? " · " + data.mac : "")
+        else if (data.error) root.actionStatus = String(data.error)
+        else if (String(text || "").length) root.actionStatus = String(text).trim()
       }
     }
     stderr: StdioCollector { waitForEnd: true }
-    onExited: function(exitCode) {
-      if (root.expectedStop) {
-        root.expectedStop = false
-        if (root.opened && root.loading) {
-          probeProc.command = ["python3", root.pluginDir + "/probe.py"]
-          probeProc.running = true
-        }
-        return
-      }
-      if (!root.opened) return
-      if (exitCode !== 0 && root.machines.length === 0 && !root.error)
-        root.error = "Probe failed"
-      root.loading = false
-    }
   }
 
   Process {
@@ -570,22 +829,23 @@ Panel {
   }
 
   Timer {
-    interval: root.refreshIntervalSec * 1000
+    interval: 2000
     running: root.opened && root.view === "glance"
     repeat: true
-    onTriggered: if (root.opened && root.view === "glance" && !probeProc.running) root.refresh()
+    onTriggered: if (root.opened) snapshotView.reload()
   }
 
-  // Pulse WatchlistRow height family (~42) without sparkline/edit chrome.
+  // Compact dash row: colour light + label + optional member lights + metric.
   component MeshRow: Item {
     property string label: ""
     property string status: "unknown"
     property string metric: ""
     property bool showMetric: true
+    property var lights: []
     property string hoverTip: ""
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
-    height: Style.space(42)
+    height: Style.space(22)
 
     PanelToolTip {
       visible: rowMa.containsMouse && hoverTip !== ""
@@ -602,8 +862,6 @@ Panel {
 
     RowLayout {
       anchors.fill: parent
-      anchors.leftMargin: Style.space(9)
-      anchors.rightMargin: Style.space(9)
       spacing: Style.space(8)
 
       Text {
@@ -611,16 +869,30 @@ Panel {
         color: root.statusColor(status)
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
-        Layout.preferredWidth: Style.space(14)
+        Layout.preferredWidth: Style.space(12)
       }
       Text {
         text: label
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
-        font.bold: true
         elide: Text.ElideRight
         Layout.fillWidth: true
+      }
+      Row {
+        spacing: 3
+        visible: lights && lights.length > 1
+        Repeater {
+          model: lights
+          Rectangle {
+            required property var modelData
+            width: 6
+            height: 6
+            radius: 3
+            anchors.verticalCenter: parent.verticalCenter
+            color: root.statusColor(String(modelData || "unknown"))
+          }
+        }
       }
       Text {
         visible: showMetric
@@ -631,14 +903,6 @@ Panel {
         horizontalAlignment: Text.AlignRight
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
-    }
-
-    Rectangle {
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      height: 1
-      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
     }
   }
 
@@ -722,9 +986,13 @@ Panel {
     property string label: ""
     property string subline: ""
     property string status: "unknown"
+    property string kind: ""
+    property string metric: ""
+    property var lights: []
     property var rttRow: null
     property bool selected: false
     property bool notifyOn: true
+    readonly property bool isLan: nodeId === "__lan__"
     readonly property bool hot: root.rttHot(rttRow)
     signal activated()
     signal notifyClicked()
@@ -737,26 +1005,28 @@ Panel {
       if (hot) return Qt.alpha(root.urgent, 0.07)
       return root.card
     }
-    border.width: selected || status === "down" ? 2 : 1
-    border.color: Qt.alpha(root.statusColor(status), selected ? 0.9 : (status === "unknown" ? 0.5 : 0.65))
+    border.width: selected || status === "down" || kind === "hub" ? 2 : 1
+    border.color: kind === "hub" && status !== "down"
+        ? Qt.alpha(Color.accent, selected ? 0.9 : 0.55)
+        : Qt.alpha(root.statusColor(status), selected ? 0.9 : (status === "unknown" ? 0.5 : 0.65))
 
     Rectangle {
-      visible: !mapBox.notifyOn
+      visible: !mapBox.isLan
       anchors.top: parent.top
       anchors.right: parent.right
       anchors.margins: Style.space(8)
       width: notifyLab.implicitWidth + Style.space(14)
       height: Style.space(18)
       radius: Style.space(9)
-      color: Qt.alpha(root.urgent, 0.14)
+      color: mapBox.notifyOn ? Qt.alpha(root.ink, 0.08) : Qt.alpha(root.urgent, 0.14)
       border.width: 1
-      border.color: Qt.alpha(root.urgent, 0.45)
+      border.color: mapBox.notifyOn ? Qt.alpha(root.ink, 0.22) : Qt.alpha(root.urgent, 0.45)
       z: 2
       Text {
         id: notifyLab
         anchors.centerIn: parent
-        text: "MUTED"
-        color: root.urgent
+        text: mapBox.notifyOn ? "ALERT" : "MUTE"
+        color: mapBox.notifyOn ? root.inkDim : root.urgent
         font.family: root.fontFamily
         font.pixelSize: 8
         font.bold: true
@@ -813,11 +1083,26 @@ Panel {
 
       Text {
         width: parent.width
-        text: root.rttText(rttRow)
-        color: hot ? root.urgent : (root.rttText(rttRow) === "—" ? root.inkDim : root.dim)
+        text: mapBox.metric !== "" ? mapBox.metric : root.rttText(rttRow)
+        color: hot ? root.urgent : ((mapBox.metric === "—" || mapBox.metric === "") ? root.inkDim : root.dim)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
+      }
+
+      Row {
+        spacing: 4
+        visible: lights && lights.length > 0
+        Repeater {
+          model: lights
+          Rectangle {
+            required property var modelData
+            width: 7
+            height: 7
+            radius: 4
+            color: root.statusColor(String(modelData || "unknown"))
+          }
+        }
       }
     }
 
@@ -919,7 +1204,7 @@ Panel {
     borderSpec: root.view === "glance" && root.glanceTab === "map"
         ? Border.flat(Color.accent, 2) : Border.none()
     contentWidth: panel.fittedContentWidth(root.view === "glance" && root.glanceTab === "map"
-        ? Style.space(1120) : Style.space(390))
+        ? Style.space(1120) : Style.space(560))
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
 
     PanelKeyCatcher {
@@ -933,7 +1218,9 @@ Panel {
         if (root.view !== "glance") return
         var k = String(text || "").toLowerCase()
         if (k === "r") root.refresh()
-        if (k === "m") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
+        if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
+        if (k === "n") { root.showLan = !root.showLan; root.recalcMapLayout() }
+        if (k === "p") root.showProxies = !root.showProxies
       }
       onMoveRequested: function(dx, dy) {
         if (root.view === "glance" && root.glanceTab === "map") root.moveMapSelection(dx, dy)
@@ -983,7 +1270,7 @@ Panel {
               }
               Text {
                 width: parent.width
-                text: root.glanceTab === "map" ? "Homelab topology map" : "Machines, LAN, and proxies"
+                text: root.glanceTab === "map" ? "Machines → Caddy → services · leftover LAN clustered" : "Dash · colour lights · toggle the noise"
                 color: root.inkDim
                 font.family: root.fontFamily
                 font.pixelSize: 11
@@ -1037,6 +1324,20 @@ Panel {
               text: "List"
               selected: root.glanceTab === "list"
               onClicked: root.glanceTab = "list"
+            }
+            Item { width: Style.space(8); height: 1 }
+            SegBtn {
+              label: "LAN" + (root.quietLan.length ? " " + root.quietLan.length : "")
+              active: root.showLan
+              onTapped: {
+                root.showLan = !root.showLan
+                root.recalcMapLayout()
+              }
+            }
+            SegBtn {
+              label: "PROXIES" + (root.quietProxies.length ? " " + root.quietProxies.length : "")
+              active: root.showProxies
+              onTapped: root.showProxies = !root.showProxies
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -1162,27 +1463,26 @@ Panel {
                 x: modelData.x
                 y: modelData.y
                 width: modelData.w
+                height: modelData.h
                 nodeId: String(modelData.id || "")
                 label: String(modelData.label || "")
                 subline: String(modelData.subline || "")
                 status: String(modelData.status || "unknown")
+                kind: String(modelData.kind || "")
+                metric: String(modelData.metric || "")
+                lights: modelData.lights || []
                 rttRow: modelData
                 selected: root.mapSelectedId === String(modelData.id || "")
                 notifyOn: root.notifyEnabledForNodeId(nodeId)
-                onActivated: root.mapSelectedId = nodeId
+                onActivated: {
+                  root.mapSelectedId = nodeId
+                  if (nodeId === "__lan__") {
+                    root.showLan = true
+                    root.glanceTab = "list"
+                  }
+                }
                 onNotifyClicked: root.toggleNotifyForNodeId(nodeId)
               }
-            }
-
-            Text {
-              visible: root.lan.length > root.mapLanCap
-              anchors.right: parent.right
-              anchors.rightMargin: Style.space(4)
-              y: Style.space(172) + root.mapCardH + Style.space(4)
-              text: "+" + (root.lan.length - root.mapLanCap) + " more LAN hosts in List"
-              color: root.inkDim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
             }
           }
 
@@ -1206,15 +1506,16 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.Wrap
                 text: {
-                  if (!root.mapSelectedId) return "Click or arrow to a node"
+                  if (!root.mapSelectedId) return "Click a machine, the Caddy hub, a service, or the LAN cluster"
                   var row = root.glanceRowById(root.mapSelectedId)
-                  return String(row ? row.label : root.mapSelectedId) + " · "
-                    + String(row ? row.status : "unknown") + " · "
-                    + root.rttText(row)
+                  if (!row) return root.mapSelectedId
+                  if (row.id === "__lan__") return row.metric + " · click the cluster to open leftovers in List"
+                  var metric = row.members ? root.serviceMetric(row) : root.machineMetric(row)
+                  return String(row.label || row.id) + " · " + String(row.status) + " · " + metric
                 }
               }
               Row {
-                visible: root.mapSelectedId !== ""
+                visible: root.mapSelectedId !== "" && root.mapSelectedId !== "__lan__"
                 spacing: Style.space(8)
                 SegBtn {
                   label: root.notifyEnabledForNodeId(root.mapSelectedId) ? "Notify on" : "Notify off"
@@ -1226,25 +1527,107 @@ Panel {
                   active: false
                   onTapped: {
                     var node = root.invNodeById(root.mapSelectedId)
+                    var ids = root.groupMemberIds(root.mapSelectedId)
+                    if (!node && ids.length) node = root.invNodeById(ids[0])
                     root.goSetup()
                     if (node) root.goFormEdit(node)
                   }
                 }
+                SegBtn {
+                  visible: {
+                    var row = root.glanceRowById(root.mapSelectedId)
+                    return !!(row && !row.members && root.sshHostFor(row))
+                  }
+                  label: "SSH"
+                  active: false
+                  onTapped: root.openSsh(root.glanceRowById(root.mapSelectedId))
+                }
+                SegBtn {
+                  visible: {
+                    var row = root.glanceRowById(root.mapSelectedId)
+                    return !!(row && row.status === "down" && row.mac)
+                  }
+                  label: "Wake"
+                  active: false
+                  onTapped: root.wakeNode(root.glanceRowById(root.mapSelectedId))
+                }
+              }
+              Text {
+                visible: root.actionStatus !== ""
+                width: parent.width
+                text: root.actionStatus
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
               }
             }
           }
 
-          Column {
+          Flickable {
+            id: listScroll
             width: parent.width
-            spacing: Style.space(8)
+            height: Math.min(Style.space(420), listCol.implicitHeight)
             visible: root.glanceTab === "list"
-
-            BandCap { title: "MACHINES"; width: parent.width }
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            contentWidth: width
+            contentHeight: listCol.implicitHeight
             Column {
-              width: parent.width
-              spacing: 0
+              id: listCol
+              width: listScroll.width
+              spacing: Style.space(6)
+
+              BandCap { title: "MACHINES"; width: parent.width }
               Repeater {
                 model: root.machines
+                MeshRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: root.displayStatus(modelData)
+                  metric: root.machineMetric(modelData)
+                  hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              BandCap { title: "SERVICES"; width: parent.width }
+              Repeater {
+                model: root.groups
+                MeshRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: String(modelData.status || "unknown")
+                  metric: root.serviceMetric(modelData)
+                  lights: root.serviceLights(modelData)
+                  hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              BandCap {
+                visible: root.showLan
+                title: "LAN"
+                width: parent.width
+              }
+              Repeater {
+                model: root.showLan ? root.quietLan : []
+                MeshRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: String(modelData.status || "unknown")
+                  metric: root.rttText(modelData)
+                  hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              BandCap {
+                visible: root.showProxies
+                title: "PROXIES"
+                width: parent.width
+              }
+              Repeater {
+                model: root.showProxies ? root.quietProxies : []
                 MeshRow {
                   required property var modelData
                   width: parent.width
@@ -1255,49 +1638,14 @@ Panel {
                 }
               }
             }
-
-            BandCap { title: "LAN"; width: parent.width }
-            ListView {
-              id: lanList
-              width: parent.width
-              height: Math.min(Style.space(42) * 10, Style.space(42) * Math.max(1, root.lan.length))
-              clip: true
-              boundsBehavior: Flickable.StopAtBounds
-              model: root.lan
-              delegate: MeshRow {
-                required property var modelData
-                label: String(modelData.label || modelData.id || "")
-                status: String(modelData.status || "unknown")
-                metric: root.rttText(modelData)
-                hoverTip: root.listRowTooltip(modelData)
-              }
-            }
-
-            BandCap { title: "PROXIES"; width: parent.width }
-            Column {
-              width: parent.width
-              spacing: 0
-              Repeater {
-                model: root.proxies
-                MeshRow {
-                  required property var modelData
-                  width: parent.width
-                  label: String(modelData.label || modelData.id || "")
-                  status: String(modelData.status || "unknown")
-                  metric: ""
-                  showMetric: false
-                  hoverTip: root.listRowTooltip(modelData)
-                }
-              }
-            }
           }
 
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
-                ? "arrows select · Enter notify · m list · r refresh · Esc back"
-                : "m map · r refresh · Esc back"
+                ? "click LAN cluster for leftovers · arrows select · Enter notify · m list"
+                : "LAN / PROXIES toggle leftovers · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -1,7 +1,7 @@
 # OmarPlugs
 
-Omarchy Quickshell plugins for Donnie's homelab (workroom: Homelab mesh).
+Omarchy Quickshell plugins for Donnie's homelab.
 
 Not a bot — just plugins.
 
-- `homelab-mesh` — machine / LAN / proxy glance panel
+- `homelab-mesh` — **Lanarchy** homelab map + list panel ([GitHub](https://github.com/DonnieFi/OmarPlugs))

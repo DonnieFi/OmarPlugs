@@ -42,6 +42,8 @@ Per-node optional fields:
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `notify` | boolean | `true` | When `false`, no fail-streak alerts for this id |
+| `group` | string | derived from id/dns stem | Collapse host+proxy twins (`bernie`, `ha`) into one service |
+| `hidden` | boolean | `false` | Drop from leftover LAN even when the LAN toggle is on |
 | `mapBand` | string | derived from `type` | Override band key for letterbox layout (`machine`, `host`, `proxy`) |
 | `mapOrder` | integer | list order | Stable sort within band |
 
@@ -133,13 +135,23 @@ Inventory `notify: false` skips increment and send for that id.
 
 | Surface | Contract |
 |---------|----------|
-| `probe.py` stdout | Unchanged three-band glance |
-| Inventory | Nodes + optional edges/settings/notify |
+| `probe.py` stdout | Three-band glance plus optional `groups`, `quiet_lan`, `quiet_proxies`, `lan_meta` |
+| Inventory | Nodes + optional edges/settings/notify/group/hidden |
 | History | RTT + transitions |
 | Notify state | Streaks only |
 
 Panel merges glance rows with inventory `notify` for toggles in map and Setup.
 
-## 5oy.5 traffic (deferred)
+## Collector daemon (5oy.12)
 
-No fake throughput on edges. Real inter-host metrics require a signed data source (daemon, SNMP, or agent). Until then, edge animation uses `max(rtt_ms(from), rtt_ms(to))` from the latest glance/history sample.
+`daemon.py` is the single writer. `fcntl` flock on `.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `snapshot.json`.
+
+The panel **starts** the daemon on open (idempotent via flock) and **only reads** `snapshot.json` (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` CLI.
+
+Edge pulse uses `rx_bps` when present, else endpoint RTT.
+
+## Telemetry (5oy.10)
+
+No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`).
+
+Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash).

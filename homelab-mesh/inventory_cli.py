@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""CLI for QML Process: dump | migrate | write <json-file> (OmarPlugs-5oy.1)."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from inventory_lib import (
+    DEFAULT_INVENTORY,
+    load_inventory,
+    normalize_inventory,
+    save_inventory,
+)
+
+
+def cmd_dump(path: Path) -> int:
+    inv = load_inventory(path)
+    # QML consumes nodes + migratedFromV1; strip path
+    out = {
+        "schemaVersion": inv["schemaVersion"],
+        "nodes": inv["nodes"],
+        "migratedFromV1": bool(inv.get("migratedFromV1")),
+    }
+    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_migrate(path: Path) -> int:
+    inv = load_inventory(path)
+    if not inv.get("migratedFromV1") and path.exists():
+        # already v2 on disk — still rewrite normalized v2
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(raw.get("nodes"), list) and (
+            raw.get("schemaVersion") == 2 or raw.get("schema_version") == 2
+        ):
+            save_inventory(inv, path)
+            print(json.dumps({"ok": True, "migrated": False, "nodes": len(inv["nodes"])}))
+            return 0
+    save_inventory(inv, path)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "migrated": bool(inv.get("migratedFromV1")),
+                "nodes": len(inv["nodes"]),
+                "path": str(path),
+            }
+        )
+    )
+    return 0
+
+
+def cmd_write(path: Path, json_file: Path) -> int:
+    if str(json_file) == "-":
+        raw = json.load(sys.stdin)
+    else:
+        raw = json.loads(json_file.read_text(encoding="utf-8"))
+    if isinstance(raw, list):
+        raw = {"schemaVersion": 2, "nodes": raw}
+    inv = normalize_inventory(raw)
+    save_inventory(inv, path)
+    print(json.dumps({"ok": True, "nodes": len(inv["nodes"]), "path": str(path)}))
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    # inventory_cli.py [inventory-path] dump|migrate|write <file>
+    args = list(argv[1:])
+    inv_path = DEFAULT_INVENTORY
+    if args and args[0] not in ("dump", "migrate", "write") and not args[0].startswith("-"):
+        # optional leading path
+        maybe = Path(args[0])
+        if len(args) >= 2 and args[1] in ("dump", "migrate", "write"):
+            inv_path = maybe
+            args = args[1:]
+    if not args:
+        print("usage: inventory_cli.py [inventory.json] dump|migrate|write <json-file>", file=sys.stderr)
+        return 2
+    cmd = args[0]
+    try:
+        if cmd == "dump":
+            return cmd_dump(inv_path)
+        if cmd == "migrate":
+            return cmd_migrate(inv_path)
+        if cmd == "write":
+            if len(args) < 2:
+                print("write requires <json-file>", file=sys.stderr)
+                return 2
+            return cmd_write(inv_path, Path(args[1]))
+        print(f"unknown command: {cmd}", file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

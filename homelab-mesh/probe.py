@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Live homelab mesh projection (v1). No durable writes. Arch shape."""
+"""Live homelab mesh projection. Glance JSON unchanged: {as_of, machines, lan, proxies}."""
 from __future__ import annotations
 
 import json
-import os
 import re
 import socket
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+from inventory_lib import load_inventory, nodes_by_type, probe_target
 
 HERE = Path(__file__).resolve().parent
 INVENTORY = HERE / "inventory.json"
@@ -22,11 +22,6 @@ HTTP_TIMEOUT_S = 2.0
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-
-def load_inventory() -> dict:
-    with INVENTORY.open(encoding="utf-8") as f:
-        return json.load(f)
 
 
 def ping_host(host: str) -> tuple[str, float | None]:
@@ -71,26 +66,28 @@ def check_http(url: str) -> str:
         return "down"
 
 
-def probe_rtt_row(entry: dict) -> dict:
-    host = str(entry.get("host") or "")
+def probe_rtt_node(node: dict) -> dict:
+    host, _port, _url = probe_target(node)
+    host = host or ""
     status, rtt = ping_host(host)
     return {
-        "id": str(entry.get("id") or host),
-        "label": str(entry.get("label") or entry.get("id") or host),
+        "id": str(node.get("id") or host),
+        "label": str(node.get("label") or node.get("id") or host),
         "host": host,
         "status": status,
         "rtt_ms": rtt,
     }
 
 
-def probe_proxy(entry: dict) -> dict:
-    check = str(entry.get("check") or "tcp").lower()
-    label = str(entry.get("label") or entry.get("id") or "proxy")
-    pid = str(entry.get("id") or label)
+def probe_proxy_node(node: dict) -> dict:
+    check = str(node.get("check") or "tcp").lower()
+    label = str(node.get("label") or node.get("id") or "proxy")
+    pid = str(node.get("id") or label)
+    host, port, url = probe_target(node)
     if check == "http":
-        status = check_http(str(entry.get("url") or ""))
+        status = check_http(url or "")
     else:
-        status = check_tcp(str(entry.get("host") or ""), int(entry.get("port") or 0))
+        status = check_tcp(host or "", int(port or 0))
     return {
         "id": pid,
         "label": label,
@@ -101,15 +98,16 @@ def probe_proxy(entry: dict) -> dict:
 
 def main() -> int:
     try:
-        inv = load_inventory()
+        inv = load_inventory(INVENTORY)
     except Exception as e:
         print(json.dumps({"error": f"inventory: {e}"}, indent=2))
         return 1
+    grouped = nodes_by_type(inv.get("nodes") or [])
     payload = {
         "as_of": now_iso(),
-        "machines": [probe_rtt_row(x) for x in (inv.get("machines") or [])],
-        "lan": [probe_rtt_row(x) for x in (inv.get("lan") or [])],
-        "proxies": [probe_proxy(x) for x in (inv.get("proxies") or [])],
+        "machines": [probe_rtt_node(x) for x in grouped["machines"]],
+        "lan": [probe_rtt_node(x) for x in grouped["lan"]],
+        "proxies": [probe_proxy_node(x) for x in grouped["proxies"]],
     }
     json.dump(payload, sys.stdout, indent=2)
     sys.stdout.write("\n")

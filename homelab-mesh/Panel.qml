@@ -47,6 +47,7 @@ Panel {
   property var quietLan: []
   property var quietProxies: []
   property var lanMeta: ({})
+  property var unifi: ({})
   property bool showLan: false
   property bool showProxies: false
   property string actionStatus: ""
@@ -210,7 +211,49 @@ Panel {
     if (meta.dns_ms != null) bits.push("dns " + Math.round(Number(meta.dns_ms)) + "ms")
     if (meta.neighbors != null) bits.push(meta.neighbors + " neigh")
     if (meta.unknown) bits.push(meta.unknown + " new")
+    var u = root.unifi || {}
+    if (u.model) bits.push(u.model)
+    var nCli = (u.clients instanceof Array) ? u.clients.length : 0
+    if (nCli) bits.push(nCli + " unifi")
+    var nNew = (u.discover instanceof Array) ? u.discover.length : 0
+    if (nNew) bits.push(nNew + " unifi-new")
     return bits.join(" · ")
+  }
+
+  function unifiMetric() {
+    var u = root.unifi || {}
+    var bits = []
+    if (u.model) bits.push(String(u.model))
+    var nDev = (u.devices instanceof Array) ? u.devices.length : 0
+    if (nDev) bits.push(nDev + (nDev === 1 ? " device" : " devices"))
+    var nCli = (u.clients instanceof Array) ? u.clients.length : 0
+    if (nCli) bits.push(nCli + (nCli === 1 ? " client" : " clients"))
+    var nNew = (u.discover instanceof Array) ? u.discover.length : 0
+    if (nNew) bits.push(nNew + " new")
+    if (u.auth === "none" && u.ok) bits.push("no key")
+    if (u.error && u.auth !== "none") bits.push(String(u.error))
+    return bits.join(" · ") || "controller"
+  }
+
+  function unifiLights() {
+    var u = root.unifi || {}
+    var devs = u.devices instanceof Array ? u.devices : []
+    if (!devs.length) return [u.ok ? "up" : "down"]
+    var out = []
+    var i
+    for (i = 0; i < devs.length; i++) {
+      var s = String(devs[i].state || devs[i].status || "")
+      out.push(s === "up" || s === "1" ? "up" : "down")
+    }
+    return out
+  }
+
+  function unifiVisible() {
+    var u = root.unifi || {}
+    if (u.ok) return true
+    if (u.devices instanceof Array && u.devices.length) return true
+    if (u.url) return true
+    return false
   }
 
   function rebuildMapEdges() {
@@ -391,6 +434,7 @@ Panel {
     root.quietLan = data.quiet_lan instanceof Array ? data.quiet_lan : []
     root.quietProxies = data.quiet_proxies instanceof Array ? data.quiet_proxies : []
     root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
+    root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
     root.error = ""
     root.loading = false
     root.rebuildMapEdges()
@@ -1179,13 +1223,32 @@ Panel {
     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: tapped() }
   }
 
+  readonly property int glanceDownCount: {
+    var n = 0
+    var i
+    for (i = 0; i < root.machines.length; i++)
+      if (String(root.machines[i].status) === "down") n++
+    for (i = 0; i < root.groups.length; i++)
+      if (String(root.groups[i].status) === "down") n++
+    return n
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰌘"
+    text: ""
     tooltipText: "Lanarchy"
     active: root.opened
+    iconComponent: Component {
+      LanarchyIcon {
+        anchors.fill: parent
+        color: button.foreground
+        alert: root.urgent
+        alarmed: root.glanceDownCount > 0
+        active: root.opened || root.glanceDownCount > 0
+      }
+    }
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.toggle()
       else if (buttonCode === Qt.MiddleButton) root.refresh()
@@ -1260,13 +1323,24 @@ Panel {
             Column {
               width: Math.max(Style.space(120), parent.width - Style.space(200))
               spacing: Style.space(3)
-              Text {
-                text: "LANARCHY"
-                color: root.ink
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                font.bold: true
-                font.letterSpacing: 2.5
+              Row {
+                spacing: Style.space(8)
+                LanarchyIcon {
+                  iconSize: Style.space(22)
+                  color: root.ink
+                  alert: root.urgent
+                  alarmed: root.glanceDownCount > 0
+                  active: true
+                }
+                Text {
+                  text: "LANARCHY"
+                  color: root.ink
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  font.letterSpacing: 2.5
+                  anchors.verticalCenter: parent.verticalCenter
+                }
               }
               Text {
                 width: parent.width
@@ -1587,6 +1661,27 @@ Panel {
                   status: root.displayStatus(modelData)
                   metric: root.machineMetric(modelData)
                   hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              BandCap {
+                visible: root.unifiVisible()
+                title: "UNIFI"
+                width: parent.width
+              }
+              MeshRow {
+                visible: root.unifiVisible()
+                width: parent.width
+                label: String((root.unifi && root.unifi.name) || "UniFi")
+                status: (root.unifi && root.unifi.ok) ? "up" : "down"
+                metric: root.unifiMetric()
+                lights: root.unifiLights()
+                hoverTip: {
+                  var u = root.unifi || {}
+                  var bits = [u.model || "UniFi OS", u.auth === "none" ? "local /api/system · drop API key in unifi-secrets.json" : ("auth " + u.auth)]
+                  if (u.mac) bits.push(u.mac)
+                  if (u.url) bits.push(u.url)
+                  return bits.join(" · ")
                 }
               }
 

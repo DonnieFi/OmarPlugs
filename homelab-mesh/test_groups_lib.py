@@ -24,7 +24,7 @@ def test_inventory_groups() -> None:
     assert "cockpit.lan" in leftover_ids
     assert "print.lan" in leftover_ids
     machine_ids = {n["id"] for n in dash["machines"]}
-    assert machine_ids == {"deba", "kiritsuke", "aka", "suji"}
+    assert machine_ids == {"deba", "kiritsuke", "aka", "suji", "redultra"}
 
 
 def test_attach_status_degraded() -> None:

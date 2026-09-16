@@ -30,20 +30,27 @@
       "ip": null
     },
     {
+      "id": "redultra",
+      "type": "machine",
+      "label": "redUltra",
+      "dns": null,
+      "ip": "192.168.1.1"
+    },
+    {
       "id": "bernie.lan",
       "type": "host",
       "label": "Bernie",
+      "group": "bernie",
       "dns": "bernie.lan",
-      "ip": null,
-      "group": "bernie"
+      "ip": null
     },
     {
       "id": "cameras.lan",
       "type": "host",
       "label": "Cameras",
+      "group": "cameras",
       "dns": "cameras.lan",
-      "ip": null,
-      "group": "cameras"
+      "ip": null
     },
     {
       "id": "cockpit.lan",
@@ -56,9 +63,9 @@
       "id": "dockge.lan",
       "type": "host",
       "label": "Dockge",
+      "group": "dockge",
       "dns": "dockge.lan",
-      "ip": null,
-      "group": "dockge"
+      "ip": null
     },
     {
       "id": "draw.lan",
@@ -71,33 +78,33 @@
       "id": "files.lan",
       "type": "host",
       "label": "Files",
+      "group": "files",
       "dns": "files.lan",
-      "ip": null,
-      "group": "files"
+      "ip": null
     },
     {
       "id": "frigate.lan",
       "type": "host",
       "label": "Frigate",
+      "group": "cameras",
       "dns": "frigate.lan",
-      "ip": null,
-      "group": "cameras"
+      "ip": null
     },
     {
       "id": "git.lan",
       "type": "host",
       "label": "Git",
+      "group": "git",
       "dns": "git.lan",
-      "ip": null,
-      "group": "git"
+      "ip": null
     },
     {
       "id": "ha.lan",
       "type": "host",
       "label": "Home Assistant",
+      "group": "ha",
       "dns": "ha.lan",
-      "ip": null,
-      "group": "ha"
+      "ip": null
     },
     {
       "id": "langfuse.lan",
@@ -117,17 +124,17 @@
       "id": "pihole1.lan",
       "type": "host",
       "label": "Pi-hole 1",
+      "group": "pihole",
       "dns": "pihole1.lan",
-      "ip": null,
-      "group": "pihole"
+      "ip": null
     },
     {
       "id": "pihole2.lan",
       "type": "host",
       "label": "Pi-hole 2",
+      "group": "pihole",
       "dns": "pihole2.lan",
-      "ip": null,
-      "group": "pihole"
+      "ip": null
     },
     {
       "id": "print.lan",
@@ -140,9 +147,9 @@
       "id": "search.lan",
       "type": "host",
       "label": "Search",
+      "group": "search",
       "dns": "search.lan",
-      "ip": null,
-      "group": "search"
+      "ip": null
     },
     {
       "id": "stable.lan",
@@ -162,80 +169,85 @@
       "id": "caddy-health",
       "type": "proxy",
       "label": "Caddy",
+      "group": "caddy",
       "check": "http",
-      "url": "http://192.168.1.92/healthz",
-      "group": "caddy"
+      "url": "http://192.168.1.92/healthz"
     },
     {
       "id": "bernie-api",
       "type": "proxy",
       "label": "Bernie API",
+      "group": "bernie",
       "check": "http",
-      "url": "http://suji.lan:8000/api/health",
-      "group": "bernie"
+      "url": "http://suji.lan:8000/api/health"
     },
     {
       "id": "bernie",
       "type": "proxy",
       "label": "Bernie :443",
+      "group": "bernie",
       "check": "tcp",
       "dns": "bernie.lan",
-      "port": 443,
-      "group": "bernie"
+      "port": 443
     },
     {
       "id": "git",
       "type": "proxy",
       "label": "Git :443",
+      "group": "git",
       "check": "tcp",
       "dns": "git.lan",
-      "port": 443,
-      "group": "git"
+      "port": 443
     },
     {
       "id": "ha",
       "type": "proxy",
       "label": "HA :443",
+      "group": "ha",
       "check": "tcp",
       "dns": "ha.lan",
-      "port": 443,
-      "group": "ha"
+      "port": 443
     },
     {
       "id": "frigate",
       "type": "proxy",
       "label": "Frigate :443",
+      "group": "cameras",
       "check": "tcp",
       "dns": "frigate.lan",
-      "port": 443,
-      "group": "cameras"
+      "port": 443
     },
     {
       "id": "search",
       "type": "proxy",
       "label": "Search :443",
+      "group": "search",
       "check": "tcp",
       "dns": "search.lan",
-      "port": 443,
-      "group": "search"
+      "port": 443
     },
     {
       "id": "files",
       "type": "proxy",
       "label": "Files :443",
+      "group": "files",
       "check": "tcp",
       "dns": "files.lan",
-      "port": 443,
-      "group": "files"
+      "port": 443
     },
     {
       "id": "dockge",
       "type": "proxy",
       "label": "Dockge :443",
+      "group": "dockge",
       "check": "tcp",
       "dns": "dockge.lan",
-      "port": 443,
-      "group": "dockge"
+      "port": 443
     }
-  ]
+  ],
+  "settings": {
+    "unifi": {
+      "url": "https://192.168.1.1"
+    }
+  }
 }

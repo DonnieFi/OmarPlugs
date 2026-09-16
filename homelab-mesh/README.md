@@ -20,6 +20,19 @@ omarchy-shell shell summon donnie.homelab-mesh
 
 Symlink or copy this folder to `~/.config/omarchy/plugins/homelab-mesh/`. Edit `inventory.json` there for your mesh.
 
+## UniFi
+
+A local Cloud Gateway / UDM at `settings.unifi.url` (default `https://192.168.1.1`) is probed via `/api/system` with no key. That is enough for the UNIFI dash row (name, model).
+
+To pull APs, switches, and clients, create a Network API key (UniFi OS → Network → Settings → Control Plane → Integrations) and drop it here — not in inventory:
+
+```bash
+cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secrets.json
+# then: UNIFI_KEY=...   (JSON {"apiKey":"..."} also works)
+```
+
+UniFi clients that are not already inventory nodes land in `snapshot.unifi.discover` for Setup later. Nothing is auto-added.
+
 ## Commands
 
 | Script | Role |

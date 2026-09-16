@@ -15,6 +15,7 @@ All user-writable state lives under:
 | `inventory.json` | v2 node list (source of truth for probes + UI) |
 | `history.json` | Ring buffer of RTT samples and status events |
 | `notify-state.json` | Ephemeral fail-streak counters (rebuilt from history on miss) |
+| `unifi-secrets.json` | Optional UniFi API key or user/pass. Never committed; never copied into inventory |
 
 Repo-shipped `homelab-mesh/inventory.json` is the default template copied on first enable.
 
@@ -28,7 +29,11 @@ Optional **root** fields (v2.1, ignored by readers that only know v2):
 {
   "schemaVersion": 2,
   "settings": {
-    "failStreakThreshold": 3
+    "failStreakThreshold": 3,
+    "unifi": {
+      "url": "https://192.168.1.1",
+      "site": "default"
+    }
   },
   "edges": [
     { "from": "deba", "to": "git.lan", "kind": "hub" }
@@ -135,7 +140,7 @@ Inventory `notify: false` skips increment and send for that id.
 
 | Surface | Contract |
 |---------|----------|
-| `probe.py` stdout | Three-band glance plus optional `groups`, `quiet_lan`, `quiet_proxies`, `lan_meta` |
+| `probe.py` stdout | Three-band glance plus optional `groups`, `quiet_lan`, `quiet_proxies`, `lan_meta`, `unifi` |
 | Inventory | Nodes + optional edges/settings/notify/group/hidden |
 | History | RTT + transitions |
 | Notify state | Streaks only |
@@ -155,3 +160,11 @@ Edge pulse uses `rx_bps` when present, else endpoint RTT.
 No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`).
 
 Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash).
+
+## UniFi (5oy.22)
+
+Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `unifi-secrets.json`:
+
+Dotenv (`UNIFI_KEY=...`) or JSON (`{"apiKey":"..."}`). Cookie login: `UNIFI_USER` / `UNIFI_PASS`. Env fallbacks: `UNIFI_KEY`, `UNIFI_API_KEY`, `UNIFI_USER`, `UNIFI_PASS`, `UNIFI_URL`.
+
+`snapshot.unifi` is `{ok, auth, name, model, mac, devices, clients, discover}`. `discover[]` is candidates only — the collector never writes them into `inventory.json`.

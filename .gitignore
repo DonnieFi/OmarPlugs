@@ -48,6 +48,7 @@ sand-secrets.json
 homelab-mesh/inventory.local.json
 homelab-mesh/inventory.json.bak
 homelab-mesh/*.log
+homelab-mesh/unifi-secrets.json
 
 # Scratch
 *.tmp

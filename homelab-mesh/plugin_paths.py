@@ -85,3 +85,8 @@ def notify_state_path() -> Path:
 
 def snapshot_path() -> Path:
     return plugin_config_dir() / "snapshot.json"
+
+
+def unifi_secrets_path() -> Path:
+    """Sidecar credentials. Never commit; never copy into inventory.json."""
+    return plugin_config_dir() / "unifi-secrets.json"

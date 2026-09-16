@@ -27,6 +27,7 @@ from groups_lib import attach_status, group_nodes, leftover_rows
 from inventory_lib import load_inventory, nodes_by_type, probe_target
 from notify_lib import process_probe_glance
 from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
+from unifi_lib import collect_unifi
 from telemetry_lib import (
     collect_machine,
     dns_time_ms,
@@ -234,10 +235,15 @@ def run_probe(*, write_stdout: bool = True) -> dict:
         lan_f = [pool.submit(probe_rtt_node, x) for x in grouped["lan"]]
         proxies_f = [pool.submit(probe_proxy_node, x) for x in grouped["proxies"]]
         meta_f = pool.submit(lan_meta, nodes, ts_now)
+        unifi_f = pool.submit(collect_unifi, inv, nodes)
         machines = [f.result() for f in machines_f]
         lan = [f.result() for f in lan_f]
         proxies = [f.result() for f in proxies_f]
         meta = meta_f.result()
+        try:
+            unifi = unifi_f.result()
+        except Exception as e:
+            unifi = {"ok": False, "auth": "none", "error": str(e)[:160], "devices": [], "clients": [], "discover": []}
     by_id: dict[str, dict] = {}
     for row in machines + lan + proxies:
         by_id[str(row.get("id") or "")] = row
@@ -252,6 +258,7 @@ def run_probe(*, write_stdout: bool = True) -> dict:
         "quiet_lan": quiet_lan,
         "quiet_proxies": quiet_proxies,
         "lan_meta": meta,
+        "unifi": unifi,
     }
     ts = payload["as_of"]
     for row in machines:

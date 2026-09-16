@@ -64,6 +64,11 @@ def cmd_write(path: Path, json_file: Path) -> int:
         raw = json.loads(json_file.read_text(encoding="utf-8"))
     if isinstance(raw, list):
         raw = {"schemaVersion": 2, "nodes": raw}
+    if path.exists():
+        current = load_inventory(path)
+        for key in ("settings", "edges"):
+            if key not in raw and key in current:
+                raw[key] = current[key]
     inv = normalize_inventory(raw)
     save_inventory(inv, path)
     print(json.dumps({"ok": True, "nodes": len(inv["nodes"]), "path": str(path)}))

@@ -2,71 +2,67 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// v1 polish: Pulse-density rows + weather-muted secondaries.
-// Bands: Machines → LAN (scroll) → Proxies. unknown/null rtt → muted "—".
-Item {
+// OmarPlugs-vcy: Quattro KeyboardPanel + Pulse WatchlistRow density.
+// Probe JSON unchanged (machines / lan / proxies).
+Panel {
   id: root
+  moduleName: "donnie.homelab-mesh"
+  ipcTarget: "donnie.homelab-mesh"
 
-  property string omarchyPath: Quickshell.env("OMARCHY_PATH")
-  property var shell: null
-  property var manifest: null
+  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color muted: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.55)
+  readonly property color dim: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.72)
+  readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
+  readonly property int refreshIntervalSec: {
+    var n = parseInt(String(setting("refreshIntervalSec", 15)), 10)
+    if (!isFinite(n)) n = 15
+    return Math.max(5, Math.min(120, n))
+  }
 
-  property bool opened: false
   property bool loading: false
+  property bool expectedStop: false
   property string error: ""
   property string asOf: ""
   property var machines: []
   property var lan: []
   property var proxies: []
-  property bool expectedStop: false
 
-  readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
-  readonly property string fontFamily: Style.font.family
-  readonly property color fg: Color.foreground
-  readonly property color dim: Qt.darker(fg, 1.55)
-  readonly property color muted: Qt.rgba(fg.r, fg.g, fg.b, 0.42)
-  readonly property color upColor: fg
-  readonly property color downColor: Color.urgent
-  readonly property color cardBg: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.94)
-  readonly property color rowLine: Qt.rgba(fg.r, fg.g, fg.b, 0.08)
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
 
-  function open(payloadJson) {
-    root.opened = true
-    refresh()
-    Qt.callLater(function() {
-      if (root.opened) keyCatcher.forceActiveFocus()
-    })
+  function statusGlyph(status) {
+    var s = String(status || "unknown")
+    if (s === "up" || s === "down") return "●"
+    return "○"
   }
 
-  function close() {
-    root.opened = false
-    if (probeProc.running) {
-      root.expectedStop = true
-      probeProc.running = false
-    }
+  function statusColor(status) {
+    var s = String(status || "unknown")
+    if (s === "up") return root.foreground
+    if (s === "down") return root.urgent
+    return root.muted
   }
 
-  function dismiss() {
-    if (root.shell && typeof root.shell.hide === "function")
-      root.shell.hide((root.manifest && root.manifest.id) || "donnie.homelab-mesh")
-    else
-      close()
+  function rttText(row) {
+    if (!row || row.status === "unknown" || row.status === "down") return "—"
+    if (row.rtt_ms === null || row.rtt_ms === undefined) return "—"
+    var n = Number(row.rtt_ms)
+    if (!isFinite(n)) return "—"
+    if (n < 10) return (Math.round(n * 10) / 10) + " ms"
+    return Math.round(n) + " ms"
   }
 
-  function refresh() {
-    root.error = ""
-    root.loading = true
-    root.expectedStop = false
-    if (probeProc.running) {
-      root.expectedStop = true
-      probeProc.running = false
-    }
-    probeProc.command = ["python3", root.pluginDir + "/probe.py"]
-    probeProc.running = true
+  function asOfShort() {
+    if (!root.asOf) return ""
+    var s = root.asOf
+    var t = s.indexOf("T")
+    if (t >= 0 && s.length >= t + 9) return s.substring(t + 1, t + 9)
+    return s
   }
 
   function applyPayload(text) {
@@ -85,38 +81,23 @@ Item {
     root.machines = data.machines instanceof Array ? data.machines : []
     root.lan = data.lan instanceof Array ? data.lan : []
     root.proxies = data.proxies instanceof Array ? data.proxies : []
+    root.error = ""
     root.loading = false
   }
 
-  function statusGlyph(status) {
-    var s = String(status || "unknown")
-    if (s === "up" || s === "down") return "●"
-    return "○"
+  function refresh() {
+    root.loading = true
+    root.expectedStop = false
+    if (probeProc.running) {
+      root.expectedStop = true
+      probeProc.running = false
+    }
+    probeProc.command = ["python3", root.pluginDir + "/probe.py"]
+    probeProc.running = true
   }
 
-  function statusColor(status) {
-    var s = String(status || "unknown")
-    if (s === "up") return root.upColor
-    if (s === "down") return root.downColor
-    return root.muted
-  }
-
-  function rttText(row) {
-    if (!row || row.status === "unknown" || row.status === "down") return "—"
-    if (row.rtt_ms === null || row.rtt_ms === undefined) return "—"
-    var n = Number(row.rtt_ms)
-    if (!isFinite(n)) return "—"
-    if (n < 10) return (Math.round(n * 10) / 10) + " ms"
-    return Math.round(n) + " ms"
-  }
-
-  function asOfShort() {
-    if (!root.asOf) return ""
-    // Prefer local clock fragment after T if ISO-ish
-    var s = root.asOf
-    var t = s.indexOf("T")
-    if (t >= 0 && s.length >= t + 9) return s.substring(t + 1, t + 9)
-    return s
+  onOpenedChanged: {
+    if (opened) refresh()
   }
 
   Process {
@@ -146,24 +127,26 @@ Item {
   }
 
   Timer {
-    interval: 15000
+    interval: root.refreshIntervalSec * 1000
     running: root.opened
     repeat: true
     onTriggered: if (root.opened && !probeProc.running) root.refresh()
   }
 
-  // Pulse-style one-line row: glyph + label left, muted metric right
-  component StatusRow: Item {
+  // Pulse WatchlistRow height family (~42) without sparkline/edit chrome.
+  component MeshRow: Item {
     property string label: ""
     property string status: "unknown"
     property string metric: ""
     property bool showMetric: true
 
-    height: Style.space(22)
-    width: parent ? parent.width : 0
+    width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
+    height: Style.space(42)
 
     RowLayout {
       anchors.fill: parent
+      anchors.leftMargin: Style.space(9)
+      anchors.rightMargin: Style.space(9)
       spacing: Style.space(8)
 
       Text {
@@ -171,13 +154,14 @@ Item {
         color: root.statusColor(status)
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
-        Layout.preferredWidth: Style.space(12)
+        Layout.preferredWidth: Style.space(14)
       }
       Text {
         text: label
-        color: root.fg
+        color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
+        font.bold: true
         elide: Text.ElideRight
         Layout.fillWidth: true
       }
@@ -197,202 +181,148 @@ Item {
       anchors.right: parent.right
       anchors.bottom: parent.bottom
       height: 1
-      color: root.rowLine
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
     }
   }
 
-  // Storm-style weather cell for the small, fixed machine set.
-  component MachineChip: Rectangle {
-    property string label: ""
-    property string status: "unknown"
-    property string metric: "—"
-
-    implicitHeight: Style.space(72)
-    radius: Style.cornerRadius
-    color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.05)
-    border.width: 1
-    border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.10)
-
-    Column {
-      anchors.centerIn: parent
-      spacing: Style.space(3)
-
-      Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: root.statusGlyph(status)
-        color: root.statusColor(status)
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
-      }
-      Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: label
-        color: root.fg
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
-        elide: Text.ElideRight
-      }
-      Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: metric
-        color: (metric === "—") ? root.muted : root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-      }
-    }
-  }
-
-  component BandHeader: Text {
+  component BandCap: Text {
     property string title: ""
     text: title
     color: root.muted
     font.family: root.fontFamily
     font.pixelSize: Style.font.caption
     font.bold: true
-    font.letterSpacing: 1.2
+    font.letterSpacing: 1.1
   }
 
-  PanelWindow {
-    visible: root.opened
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "donnie-homelab-mesh"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-
-    Rectangle {
-      anchors.fill: parent
-      color: Qt.rgba(0, 0, 0, 0.5)
-      MouseArea { anchors.fill: parent; onClicked: root.dismiss() }
+  BarIconButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: "󰌘"
+    tooltipText: "Homelab Mesh"
+    active: root.opened
+    onPressed: function(buttonCode) {
+      if (buttonCode === Qt.LeftButton) root.toggle()
+      else if (buttonCode === Qt.MiddleButton) root.refresh()
     }
+  }
 
-    Item {
+  KeyboardPanel {
+    id: panel
+    anchorItem: button
+    owner: root
+    bar: root.bar
+    open: root.opened
+    centerOnBar: false
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(390))
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
+
+    PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      focus: true
-      Keys.onEscapePressed: root.dismiss()
+      onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTextKey: function(text) {
+        if (String(text || "").toLowerCase() === "r") root.refresh()
+      }
 
-      Rectangle {
-        id: card
-        anchors.centerIn: parent
-        width: Math.min(Style.space(420), keyCatcher.width - Style.space(48))
-        height: Math.min(cardCol.implicitHeight + Style.space(28), keyCatcher.height - Style.space(48))
-        radius: Style.cornerRadius
-        color: root.cardBg
-        border.width: 1
-        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
-        clip: true
+      Column {
+        id: contentColumn
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        spacing: Style.space(8)
 
-        MouseArea { anchors.fill: parent; onClicked: {} }
-
-        ColumnLayout {
-          id: cardCol
-          anchors.fill: parent
-          anchors.margins: Style.space(14)
-          spacing: Style.space(10)
-
-          RowLayout {
-            Layout.fillWidth: true
-            Text {
-              text: "HOMELAB MESH"
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-              font.letterSpacing: 1.5
-              Layout.fillWidth: true
-            }
-            Text {
-              text: root.loading ? "probing…" : root.asOfShort()
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-          }
-
+        Item {
+          width: parent.width
+          height: Style.space(28)
           Text {
-            visible: root.error !== ""
-            text: root.error
-            color: root.downColor
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Homelab Mesh"
+            color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
+            font.pixelSize: Style.font.body
+            font.bold: true
           }
-
-          BandHeader { title: "MACHINES" }
-          GridLayout {
-            Layout.fillWidth: true
-            columns: Math.min(4, Math.max(1, root.machines.length))
-            columnSpacing: Style.space(8)
-            rowSpacing: Style.space(8)
-            Repeater {
-              model: root.machines
-              MachineChip {
-                required property var modelData
-                Layout.fillWidth: true
-                Layout.preferredWidth: Style.space(82)
-                label: String(modelData.label || modelData.id || "")
-                status: String(modelData.status || "unknown")
-                metric: root.rttText(modelData)
-              }
-            }
-          }
-
-          BandHeader { title: "LAN" }
-          // Clip/scroll — don't grow panel for ~17 hosts
-          Flickable {
-            id: lanFlick
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(Style.space(22) * 8, Style.space(22) * Math.max(1, root.lan.length))
-            contentWidth: width
-            contentHeight: lanCol.height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.VerticalFlick
-
-            Column {
-              id: lanCol
-              width: lanFlick.width
-              spacing: 0
-              Repeater {
-                model: root.lan
-                StatusRow {
-                  required property var modelData
-                  width: parent.width
-                  label: String(modelData.label || modelData.id || "")
-                  status: String(modelData.status || "unknown")
-                  metric: root.rttText(modelData)
-                }
-              }
-            }
-          }
-
-          BandHeader { title: "PROXIES" }
-          Column {
-            Layout.fillWidth: true
-            spacing: 0
-            Repeater {
-              model: root.proxies
-              StatusRow {
-                required property var modelData
-                width: parent.width
-                label: String(modelData.label || modelData.id || "")
-                status: String(modelData.status || "unknown")
-                metric: ""
-                showMetric: false
-              }
-            }
-          }
-
           Text {
-            text: "Esc · glance only"
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.loading ? "probing…" : root.asOfShort()
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            Layout.alignment: Qt.AlignHCenter
           }
+        }
+
+        Text {
+          visible: root.error !== ""
+          width: parent.width
+          text: root.error
+          color: root.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.Wrap
+        }
+
+        BandCap { title: "MACHINES"; width: parent.width }
+        Column {
+          width: parent.width
+          spacing: 0
+          Repeater {
+            model: root.machines
+            MeshRow {
+              required property var modelData
+              width: parent.width
+              label: String(modelData.label || modelData.id || "")
+              status: String(modelData.status || "unknown")
+              metric: root.rttText(modelData)
+            }
+          }
+        }
+
+        BandCap { title: "LAN"; width: parent.width }
+        ListView {
+          id: lanList
+          width: parent.width
+          height: Math.min(Style.space(42) * 10, Style.space(42) * Math.max(1, root.lan.length))
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          model: root.lan
+          delegate: MeshRow {
+            required property var modelData
+            label: String(modelData.label || modelData.id || "")
+            status: String(modelData.status || "unknown")
+            metric: root.rttText(modelData)
+          }
+        }
+
+        BandCap { title: "PROXIES"; width: parent.width }
+        Column {
+          width: parent.width
+          spacing: 0
+          Repeater {
+            model: root.proxies
+            MeshRow {
+              required property var modelData
+              width: parent.width
+              label: String(modelData.label || modelData.id || "")
+              status: String(modelData.status || "unknown")
+              metric: ""
+              showMetric: false
+            }
+          }
+        }
+
+        Text {
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          text: "Esc · r refresh · glance only"
+          color: root.muted
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
         }
       }
     }

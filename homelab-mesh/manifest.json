@@ -2,14 +2,35 @@
   "schemaVersion": 1,
   "id": "donnie.homelab-mesh",
   "name": "Homelab Mesh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Donnie",
   "license": "MIT",
-  "description": "Status-only flowchart of machines, *.lan hosts, and internal proxies (live ping/RTT + proxy up/down).",
+  "description": "Glanceable machines / *.lan / proxy health in the Omarchy bar (Quattro KeyboardPanel).",
   "kinds": [
-    "panel"
+    "bar-widget"
   ],
   "entryPoints": {
-    "panel": "Panel.qml"
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Homelab Mesh",
+    "description": "Machines, LAN hosts, and proxy health at a glance.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 15
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 120,
+        "step": 5,
+        "defaultValue": 15
+      }
+    ]
   }
 }

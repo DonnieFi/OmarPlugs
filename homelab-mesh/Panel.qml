@@ -17,7 +17,6 @@ Panel {
   readonly property color ink: Color.popups.text
   readonly property color inkDim: Util.alpha(ink, 0.66)
   readonly property color card: Util.alpha(ink, 0.05)
-  readonly property color cardEdge: Util.alpha(ink, 0.15)
   readonly property color rule: Util.alpha(ink, 0.14)
   readonly property color muted: inkDim
   readonly property color dim: Util.alpha(ink, 0.72)
@@ -137,6 +136,34 @@ Panel {
     band(root.proxies, "", Style.space(316), 0)
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
+  }
+
+  function moveMapSelection(dx, dy) {
+    var cards = root.mapLayout
+    if (cards.length === 0) return
+    var cur = -1
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].id === root.mapSelectedId) { cur = i; break }
+    }
+    if (cur < 0) {
+      root.mapSelectedId = cards[0].id
+      return
+    }
+    var next = cur
+    if (dx !== 0) {
+      next = Math.max(0, Math.min(cards.length - 1, cur + dx))
+    } else if (dy !== 0) {
+      var fromY = cards[cur].y
+      var fromX = cards[cur].x + cards[cur].w / 2
+      var bestDist = Infinity
+      for (var j = 0; j < cards.length; j++) {
+        var c = cards[j]
+        if (dy > 0 ? c.y <= fromY : c.y >= fromY) continue
+        var dist = Math.abs(c.y - fromY) * 10000 + Math.abs(c.x + c.w / 2 - fromX)
+        if (dist < bestDist) { bestDist = dist; next = j }
+      }
+    }
+    root.mapSelectedId = cards[next].id
   }
 
   function rttText(row) {
@@ -750,7 +777,7 @@ Panel {
 
     Column {
       anchors.fill: parent
-      anchors.margins: Style.space(10)
+      anchors.margins: Style.space(8)
       spacing: Style.space(4)
 
       Text {
@@ -906,8 +933,13 @@ Panel {
         if (root.view !== "glance") return
         var k = String(text || "").toLowerCase()
         if (k === "r") root.refresh()
-        if (k === "m") root.glanceTab = "map"
-        if (k === "l") root.glanceTab = "list"
+        if (k === "m") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
+      }
+      onMoveRequested: function(dx, dy) {
+        if (root.view === "glance" && root.glanceTab === "map") root.moveMapSelection(dx, dy)
+      }
+      onActivateRequested: {
+        if (root.view === "glance" && root.glanceTab === "map") root.toggleNotifyForNodeId(root.mapSelectedId)
       }
 
       Item {
@@ -1065,21 +1097,14 @@ Panel {
           visible: root.view === "glance"
 
           Rectangle {
+            id: mapArea
             width: parent.width
+            height: Style.space(420)
             visible: root.glanceTab === "map"
             radius: Style.space(14)
             color: Color.popups.background
             border.width: 1
             border.color: Qt.alpha(root.ink, 0.17)
-            implicitHeight: mapArea.height + Style.space(16)
-
-            Item {
-            id: mapArea
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: Style.space(8)
-            height: Style.space(420)
             onWidthChanged: root.recalcMapLayout()
 
             Timer {
@@ -1159,7 +1184,6 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
             }
-            }
           }
 
           Rectangle {
@@ -1182,7 +1206,7 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.Wrap
                 text: {
-                  if (!root.mapSelectedId) return "Click a node · Esc back"
+                  if (!root.mapSelectedId) return "Click or arrow to a node"
                   var row = root.glanceRowById(root.mapSelectedId)
                   return String(row ? row.label : root.mapSelectedId) + " · "
                     + String(row ? row.status : "unknown") + " · "
@@ -1271,7 +1295,9 @@ Panel {
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "m map · l list · r refresh · Esc back"
+            text: root.glanceTab === "map"
+                ? "arrows select · Enter notify · m list · r refresh · Esc back"
+                : "m map · r refresh · Esc back"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -201,6 +201,47 @@ Item {
     }
   }
 
+  // Storm-style weather cell for the small, fixed machine set.
+  component MachineChip: Rectangle {
+    property string label: ""
+    property string status: "unknown"
+    property string metric: "—"
+
+    implicitHeight: Style.space(72)
+    radius: Style.cornerRadius
+    color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.05)
+    border.width: 1
+    border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.10)
+
+    Column {
+      anchors.centerIn: parent
+      spacing: Style.space(3)
+
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: root.statusGlyph(status)
+        color: root.statusColor(status)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: label
+        color: root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
+      }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: metric
+        color: (metric === "—") ? root.muted : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
   component BandHeader: Text {
     property string title: ""
     text: title
@@ -281,14 +322,17 @@ Item {
           }
 
           BandHeader { title: "MACHINES" }
-          Column {
+          GridLayout {
             Layout.fillWidth: true
-            spacing: 0
+            columns: Math.min(4, Math.max(1, root.machines.length))
+            columnSpacing: Style.space(8)
+            rowSpacing: Style.space(8)
             Repeater {
               model: root.machines
-              StatusRow {
+              MachineChip {
                 required property var modelData
-                width: parent.width
+                Layout.fillWidth: true
+                Layout.preferredWidth: Style.space(82)
                 label: String(modelData.label || modelData.id || "")
                 status: String(modelData.status || "unknown")
                 metric: root.rttText(modelData)

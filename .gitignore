@@ -1,11 +1,55 @@
+# Python
 __pycache__/
-*.pyc
-.DS_Store
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
 
-# Beads / Dolt files (added by bd init)
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and credentials (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+sand-secrets.json
+
+# Local reference clones (Pulse, Omastorm, etc.)
+.refs/
+
+# Beads / Dolt — runtime DB and machine-local state (see also .beads/.gitignore)
+.beads/embeddeddolt/
+.beads/backup/
+.beads/dolt/
+.beads/proxieddb/
+.beads/**/*.lock
+.beads-credential-key
 .dolt/
 *.db
-.beads-credential-key
-.beads/proxieddb/
+*.db-journal
+*.db-wal
+*.db-shm
 
-.refs/
+# Cursor — commit .cursor/rules/ (bd setup); ignore machine-local IDE state
+.cursor/projects/
+.cursor/terminals/
+.cursor/**/*.log
+.cursor/**/mcp-auth.json
+
+# Homelab mesh — repo ships default inventory.json; local overrides stay untracked
+homelab-mesh/inventory.local.json
+homelab-mesh/inventory.json.bak
+homelab-mesh/*.log
+
+# Scratch
+*.tmp
+*.swp
+*~

@@ -6,8 +6,8 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// v1: glance-only mesh overview. Probe is live projection (arch shape).
-// Bands: Machines → LAN → Proxies. unknown/null rtt → muted "—".
+// v1 polish: Pulse-density rows + weather-muted secondaries.
+// Bands: Machines → LAN (scroll) → Proxies. unknown/null rtt → muted "—".
 Item {
   id: root
 
@@ -24,15 +24,15 @@ Item {
   property var proxies: []
   property bool expectedStop: false
 
-  // Third-party install path (omarchy clones here). Absolute so Process finds probe.py.
   readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
   readonly property string fontFamily: Style.font.family
   readonly property color fg: Color.foreground
   readonly property color dim: Qt.darker(fg, 1.55)
-  readonly property color muted: Qt.rgba(fg.r, fg.g, fg.b, 0.45)
+  readonly property color muted: Qt.rgba(fg.r, fg.g, fg.b, 0.42)
   readonly property color upColor: fg
   readonly property color downColor: Color.urgent
-  readonly property color cardBg: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.92)
+  readonly property color cardBg: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.94)
+  readonly property color rowLine: Qt.rgba(fg.r, fg.g, fg.b, 0.08)
 
   function open(payloadJson) {
     root.opened = true
@@ -90,8 +90,7 @@ Item {
 
   function statusGlyph(status) {
     var s = String(status || "unknown")
-    if (s === "up") return "●"
-    if (s === "down") return "●"
+    if (s === "up" || s === "down") return "●"
     return "○"
   }
 
@@ -107,7 +106,17 @@ Item {
     if (row.rtt_ms === null || row.rtt_ms === undefined) return "—"
     var n = Number(row.rtt_ms)
     if (!isFinite(n)) return "—"
-    return (Math.round(n * 10) / 10) + " ms"
+    if (n < 10) return (Math.round(n * 10) / 10) + " ms"
+    return Math.round(n) + " ms"
+  }
+
+  function asOfShort() {
+    if (!root.asOf) return ""
+    // Prefer local clock fragment after T if ISO-ish
+    var s = root.asOf
+    var t = s.indexOf("T")
+    if (t >= 0 && s.length >= t + 9) return s.substring(t + 1, t + 9)
+    return s
   }
 
   Process {
@@ -143,49 +152,63 @@ Item {
     onTriggered: if (root.opened && !probeProc.running) root.refresh()
   }
 
-  component NodeChip: Rectangle {
+  // Pulse-style one-line row: glyph + label left, muted metric right
+  component StatusRow: Item {
     property string label: ""
     property string status: "unknown"
-    property string detail: ""
-    property bool showDetail: true
+    property string metric: ""
+    property bool showMetric: true
 
-    implicitWidth: chipCol.implicitWidth + Style.space(20)
-    implicitHeight: chipCol.implicitHeight + Style.space(14)
-    radius: Style.cornerRadius
-    color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
-    border.width: 1
-    border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+    height: Style.space(22)
+    width: parent ? parent.width : 0
 
-    Column {
-      id: chipCol
-      anchors.centerIn: parent
-      spacing: Style.space(2)
+    RowLayout {
+      anchors.fill: parent
+      spacing: Style.space(8)
 
-      Row {
-        spacing: Style.space(8)
-        anchors.horizontalCenter: parent.horizontalCenter
-        Text {
-          text: root.statusGlyph(status)
-          color: root.statusColor(status)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
-        Text {
-          text: label
-          color: root.fg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
+      Text {
+        text: root.statusGlyph(status)
+        color: root.statusColor(status)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        Layout.preferredWidth: Style.space(12)
       }
       Text {
-        visible: showDetail
-        text: detail
-        color: (detail === "—") ? root.muted : root.dim
+        text: label
+        color: root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
+        Layout.fillWidth: true
+      }
+      Text {
+        visible: showMetric
+        text: metric
+        color: (metric === "—") ? root.muted : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        anchors.horizontalCenter: parent.horizontalCenter
+        horizontalAlignment: Text.AlignRight
+        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
     }
+
+    Rectangle {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      height: 1
+      color: root.rowLine
+    }
+  }
+
+  component BandHeader: Text {
+    property string title: ""
+    text: title
+    color: root.muted
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    font.bold: true
+    font.letterSpacing: 1.2
   }
 
   PanelWindow {
@@ -199,7 +222,7 @@ Item {
 
     Rectangle {
       anchors.fill: parent
-      color: Qt.rgba(0, 0, 0, 0.55)
+      color: Qt.rgba(0, 0, 0, 0.5)
       MouseArea { anchors.fill: parent; onClicked: root.dismiss() }
     }
 
@@ -212,12 +235,12 @@ Item {
       Rectangle {
         id: card
         anchors.centerIn: parent
-        width: Math.min(Style.space(560), keyCatcher.width - Style.space(48))
-        height: Math.min(cardCol.implicitHeight + Style.space(32), keyCatcher.height - Style.space(48))
+        width: Math.min(Style.space(420), keyCatcher.width - Style.space(48))
+        height: Math.min(cardCol.implicitHeight + Style.space(28), keyCatcher.height - Style.space(48))
         radius: Style.cornerRadius
         color: root.cardBg
         border.width: 1
-        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.14)
+        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
         clip: true
 
         MouseArea { anchors.fill: parent; onClicked: {} }
@@ -225,14 +248,14 @@ Item {
         ColumnLayout {
           id: cardCol
           anchors.fill: parent
-          anchors.margins: Style.space(16)
-          spacing: Style.space(14)
+          anchors.margins: Style.space(14)
+          spacing: Style.space(10)
 
           RowLayout {
             Layout.fillWidth: true
             Text {
               text: "HOMELAB MESH"
-              color: root.dim
+              color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.bold: true
@@ -240,7 +263,7 @@ Item {
               Layout.fillWidth: true
             }
             Text {
-              text: root.loading ? "probing…" : (root.asOf || "")
+              text: root.loading ? "probing…" : root.asOfShort()
               color: root.muted
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -257,74 +280,70 @@ Item {
             wrapMode: Text.Wrap
           }
 
-          Text {
-            text: "Machines"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          Flow {
+          BandHeader { title: "MACHINES" }
+          Column {
             Layout.fillWidth: true
-            spacing: Style.space(8)
+            spacing: 0
             Repeater {
               model: root.machines
-              NodeChip {
+              StatusRow {
                 required property var modelData
+                width: parent.width
                 label: String(modelData.label || modelData.id || "")
                 status: String(modelData.status || "unknown")
-                detail: root.rttText(modelData)
+                metric: root.rttText(modelData)
               }
             }
           }
 
-          Text {
-            text: "LAN"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          Flow {
+          BandHeader { title: "LAN" }
+          // Clip/scroll — don't grow panel for ~17 hosts
+          Flickable {
+            id: lanFlick
             Layout.fillWidth: true
-            spacing: Style.space(8)
-            Repeater {
-              model: root.lan
-              NodeChip {
-                required property var modelData
-                label: String(modelData.label || modelData.id || "")
-                status: String(modelData.status || "unknown")
-                detail: root.rttText(modelData)
+            Layout.preferredHeight: Math.min(Style.space(22) * 8, Style.space(22) * Math.max(1, root.lan.length))
+            contentWidth: width
+            contentHeight: lanCol.height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+
+            Column {
+              id: lanCol
+              width: lanFlick.width
+              spacing: 0
+              Repeater {
+                model: root.lan
+                StatusRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: String(modelData.status || "unknown")
+                  metric: root.rttText(modelData)
+                }
               }
             }
           }
 
-          Text {
-            text: "Proxies"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          Flow {
+          BandHeader { title: "PROXIES" }
+          Column {
             Layout.fillWidth: true
-            spacing: Style.space(8)
+            spacing: 0
             Repeater {
               model: root.proxies
-              NodeChip {
+              StatusRow {
                 required property var modelData
+                width: parent.width
                 label: String(modelData.label || modelData.id || "")
                 status: String(modelData.status || "unknown")
-                detail: "—"
-                showDetail: false
+                metric: ""
+                showMetric: false
               }
             }
           }
 
-          Item { Layout.fillHeight: true; Layout.preferredHeight: Style.space(4) }
-
           Text {
-            text: "Esc to close · glance only"
+            text: "Esc · glance only"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

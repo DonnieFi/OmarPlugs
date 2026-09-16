@@ -1,0 +1,174 @@
+{
+  "machines": [
+    {
+      "id": "deba",
+      "label": "deba",
+      "host": "deba.lan"
+    },
+    {
+      "id": "kiritsuke",
+      "label": "kiritsuke",
+      "host": "kiritsuke.lan"
+    },
+    {
+      "id": "aka",
+      "label": "aka",
+      "host": "aka.lan"
+    },
+    {
+      "id": "suji",
+      "label": "suji",
+      "host": "suji.lan"
+    }
+  ],
+  "lan": [
+    {
+      "id": "bernie.lan",
+      "label": "bernie.lan",
+      "host": "bernie.lan"
+    },
+    {
+      "id": "cameras.lan",
+      "label": "cameras.lan",
+      "host": "cameras.lan"
+    },
+    {
+      "id": "cockpit.lan",
+      "label": "cockpit.lan",
+      "host": "cockpit.lan"
+    },
+    {
+      "id": "dockge.lan",
+      "label": "dockge.lan",
+      "host": "dockge.lan"
+    },
+    {
+      "id": "draw.lan",
+      "label": "draw.lan",
+      "host": "draw.lan"
+    },
+    {
+      "id": "files.lan",
+      "label": "files.lan",
+      "host": "files.lan"
+    },
+    {
+      "id": "frigate.lan",
+      "label": "frigate.lan",
+      "host": "frigate.lan"
+    },
+    {
+      "id": "git.lan",
+      "label": "git.lan",
+      "host": "git.lan"
+    },
+    {
+      "id": "ha.lan",
+      "label": "ha.lan",
+      "host": "ha.lan"
+    },
+    {
+      "id": "langfuse.lan",
+      "label": "langfuse.lan",
+      "host": "langfuse.lan"
+    },
+    {
+      "id": "notes.lan",
+      "label": "notes.lan",
+      "host": "notes.lan"
+    },
+    {
+      "id": "pihole1.lan",
+      "label": "pihole1.lan",
+      "host": "pihole1.lan"
+    },
+    {
+      "id": "pihole2.lan",
+      "label": "pihole2.lan",
+      "host": "pihole2.lan"
+    },
+    {
+      "id": "print.lan",
+      "label": "print.lan",
+      "host": "print.lan"
+    },
+    {
+      "id": "search.lan",
+      "label": "search.lan",
+      "host": "search.lan"
+    },
+    {
+      "id": "stable.lan",
+      "label": "stable.lan",
+      "host": "stable.lan"
+    },
+    {
+      "id": "tools.lan",
+      "label": "tools.lan",
+      "host": "tools.lan"
+    }
+  ],
+  "proxies": [
+    {
+      "id": "caddy-health",
+      "label": "caddy",
+      "check": "http",
+      "url": "http://192.168.1.92/healthz"
+    },
+    {
+      "id": "bernie-api",
+      "label": "bernie-api",
+      "check": "http",
+      "url": "http://suji.lan:8000/api/health"
+    },
+    {
+      "id": "bernie",
+      "label": "bernie.lan",
+      "check": "tcp",
+      "host": "bernie.lan",
+      "port": 443
+    },
+    {
+      "id": "git",
+      "label": "git.lan",
+      "check": "tcp",
+      "host": "git.lan",
+      "port": 443
+    },
+    {
+      "id": "ha",
+      "label": "ha.lan",
+      "check": "tcp",
+      "host": "ha.lan",
+      "port": 443
+    },
+    {
+      "id": "frigate",
+      "label": "frigate.lan",
+      "check": "tcp",
+      "host": "frigate.lan",
+      "port": 443
+    },
+    {
+      "id": "search",
+      "label": "search.lan",
+      "check": "tcp",
+      "host": "search.lan",
+      "port": 443
+    },
+    {
+      "id": "files",
+      "label": "files.lan",
+      "check": "tcp",
+      "host": "files.lan",
+      "port": 443
+    },
+    {
+      "id": "dockge",
+      "label": "dockge.lan",
+      "check": "tcp",
+      "host": "dockge.lan",
+      "port": 443
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "donnie.homelab-mesh",
+  "name": "Homelab Mesh",
+  "version": "0.1.0",
+  "author": "Donnie",
+  "license": "MIT",
+  "description": "Status-only flowchart of machines, *.lan hosts, and internal proxies (live ping/RTT + proxy up/down).",
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": "Panel.qml"
+  }
+}

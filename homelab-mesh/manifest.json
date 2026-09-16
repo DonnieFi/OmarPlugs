@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "donnie.homelab-mesh",
-  "name": "Homelab Mesh",
+  "name": "Lanarchy",
   "version": "0.2.0",
   "author": "Donnie",
   "license": "MIT",
-  "description": "Glanceable machines / *.lan / proxy health in the Omarchy bar (Quattro KeyboardPanel).",
+  "description": "Lanarchy — homelab status map and Pulse-style list in the Omarchy bar.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +13,8 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Homelab Mesh",
-    "description": "Machines, LAN hosts, and proxy health at a glance.",
+    "displayName": "Lanarchy",
+    "description": "Letterbox topology map and machines / LAN / proxy health.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",

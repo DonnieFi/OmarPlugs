@@ -1,23 +1,33 @@
-# Homelab Mesh (v1)
+# Lanarchy (`donnie.homelab-mesh`)
 
-Omarchy Quickshell **panel** plugin — status-only flowchart of the home mesh.
+Homelab status in the Omarchy bar. **Letterbox topology map** (default) plus a **Pulse-style list** tab. Setup edits v2 `inventory.json` (machines, LAN hosts, proxies).
 
-- Path: `~/.config/omarchy/plugins/homelab-mesh/`
-- Id: `donnie.homelab-mesh`
-- Probe: live projection only (`probe.py` + `inventory.json`). No DB.
+- User config: `~/.config/omarchy/plugins/homelab-mesh/`
+- Plugin id: `donnie.homelab-mesh` (rename optional later)
+- Repo: [DonnieFi/OmarPlugs](https://github.com/DonnieFi/OmarPlugs)
+- Architecture (history, notify, edges): [`docs/architecture.md`](docs/architecture.md)
 
-## Enable (on a machine with Omarchy shell running)
+Row density and keyboard panel patterns follow Omarchy's **Pulse** bar plugin. Viz tone references **Omastorm** (honest timestamps, quiet chrome).
+
+## Enable
 
 ```bash
-export PATH="/mnt/adata/opt/omarchy/bin:$PATH"
-export OMARCHY_PATH=/mnt/adata/opt/omarchy
+export OMARCHY_PATH=/path/to/omarchy
 omarchy-shell shell rescanPlugins
 omarchy-plugin-enable donnie.homelab-mesh
 omarchy-shell shell summon donnie.homelab-mesh
 ```
 
-Edit `inventory.json` for curated machines / LAN / proxies (red owns inventory).
+Symlink or copy this folder to `~/.config/omarchy/plugins/homelab-mesh/`. Edit `inventory.json` there for your mesh.
 
-## Layout lock
+## Commands
 
-Machines row → LAN cluster → Proxies strip. `unknown` / null RTT → muted `—`. Proxies status-only. `as_of` muted corner.
+| Script | Role |
+|--------|------|
+| `probe.py` | Glance JSON (`machines`, `lan`, `proxies`); appends local history + notify streak sidecars |
+| `inventory_cli.py` | `dump` / `migrate` / `write` for QML |
+| `history_cli.py` | `sparkline --id <node>` for map sparklines |
+
+## Preview asset
+
+Catalog preview: add `preview.png` beside this README when map visuals are screenshot-ready (bead OmarPlugs-5oy.7).

@@ -6,12 +6,14 @@ import json
 import sys
 from pathlib import Path
 
+from edges_lib import resolve_edges
 from inventory_lib import (
     DEFAULT_INVENTORY,
     load_inventory,
     normalize_inventory,
     save_inventory,
 )
+from plugin_paths import inventory_path as user_inventory_path
 
 
 def cmd_dump(path: Path) -> int:
@@ -21,7 +23,10 @@ def cmd_dump(path: Path) -> int:
         "schemaVersion": inv["schemaVersion"],
         "nodes": inv["nodes"],
         "migratedFromV1": bool(inv.get("migratedFromV1")),
+        "edges": resolve_edges(inv),
     }
+    if isinstance(inv.get("settings"), dict):
+        out["settings"] = inv["settings"]
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
@@ -68,7 +73,7 @@ def cmd_write(path: Path, json_file: Path) -> int:
 def main(argv: list[str]) -> int:
     # inventory_cli.py [inventory-path] dump|migrate|write <file>
     args = list(argv[1:])
-    inv_path = DEFAULT_INVENTORY
+    inv_path = user_inventory_path() if user_inventory_path().is_file() else DEFAULT_INVENTORY
     if args and args[0] not in ("dump", "migrate", "write") and not args[0].startswith("-"):
         # optional leading path
         maybe = Path(args[0])

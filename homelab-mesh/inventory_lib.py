@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from plugin_paths import atomic_write_json
+
 SCHEMA_VERSION = 2
 NODE_TYPES = frozenset({"machine", "host", "proxy"})
 PROXY_CHECKS = frozenset({"http", "tcp"})
@@ -103,6 +105,17 @@ def normalize_node(raw: dict) -> dict:
         raise ValueError("label is required")
     nid = _as_str(raw.get("id")) or slugify(label)
     node: dict[str, Any] = {"id": nid, "type": ntype, "label": label}
+    if raw.get("notify") is False:
+        node["notify"] = False
+    order = raw.get("mapOrder")
+    if order is not None:
+        try:
+            node["mapOrder"] = int(order)
+        except (TypeError, ValueError):
+            pass
+    band = _as_str(raw.get("mapBand"))
+    if band:
+        node["mapBand"] = band
 
     dns = _as_str(raw.get("dns")) or _as_str(raw.get("host"))
     ip = _as_str(raw.get("ip"))
@@ -139,7 +152,7 @@ def normalize_node(raw: dict) -> dict:
 
 
 def normalize_inventory(data: dict) -> dict:
-    """Return canonical v2 inventory {schemaVersion, nodes}."""
+    """Return canonical v2 inventory {schemaVersion, nodes} plus optional settings/edges."""
     if not isinstance(data, dict):
         raise ValueError("inventory must be an object")
     nodes_in = data.get("nodes")
@@ -148,7 +161,14 @@ def normalize_inventory(data: dict) -> dict:
     else:
         # v1 three-arrays
         nodes = [normalize_node(n) for n in v1_to_nodes(data)]
-    return {"schemaVersion": SCHEMA_VERSION, "nodes": nodes}
+    out: dict[str, Any] = {"schemaVersion": SCHEMA_VERSION, "nodes": nodes}
+    settings = data.get("settings")
+    if isinstance(settings, dict) and settings:
+        out["settings"] = dict(settings)
+    edges = data.get("edges")
+    if isinstance(edges, list) and edges:
+        out["edges"] = [e for e in edges if isinstance(e, dict)]
+    return out
 
 
 def load_inventory(path: Path | None = None) -> dict:
@@ -187,13 +207,19 @@ def save_inventory(inv: dict, path: Path | None = None) -> Path:
     nodes = inv.get("nodes") if isinstance(inv, dict) else None
     if not isinstance(nodes, list):
         raise ValueError("save requires nodes[]")
-    normalized = normalize_inventory({"schemaVersion": SCHEMA_VERSION, "nodes": nodes})
-    payload = {"schemaVersion": SCHEMA_VERSION, "nodes": normalized["nodes"]}
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(p)
-    return p
+    base: dict[str, Any] = {"schemaVersion": SCHEMA_VERSION, "nodes": nodes}
+    if isinstance(inv, dict):
+        if isinstance(inv.get("settings"), dict):
+            base["settings"] = inv["settings"]
+        if isinstance(inv.get("edges"), list):
+            base["edges"] = inv["edges"]
+    normalized = normalize_inventory(base)
+    payload: dict[str, Any] = {"schemaVersion": SCHEMA_VERSION, "nodes": normalized["nodes"]}
+    if normalized.get("settings"):
+        payload["settings"] = normalized["settings"]
+    if normalized.get("edges"):
+        payload["edges"] = normalized["edges"]
+    return atomic_write_json(p, payload)
 
 
 def nodes_by_type(nodes: list[dict]) -> dict[str, list[dict]]:

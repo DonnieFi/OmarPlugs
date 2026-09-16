@@ -53,3 +53,6 @@ homelab-mesh/*.log
 *.tmp
 *.swp
 *~
+homelab-mesh/.probe.lock
+homelab-mesh/history.json*
+homelab-mesh/notify-state.json

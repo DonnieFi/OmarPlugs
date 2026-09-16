@@ -14,8 +14,13 @@ Panel {
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color muted: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.55)
-  readonly property color dim: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.72)
+  readonly property color ink: Color.popups.text
+  readonly property color inkDim: Util.alpha(ink, 0.66)
+  readonly property color card: Util.alpha(ink, 0.05)
+  readonly property color cardEdge: Util.alpha(ink, 0.15)
+  readonly property color rule: Util.alpha(ink, 0.14)
+  readonly property color muted: inkDim
+  readonly property color dim: Util.alpha(ink, 0.72)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
   readonly property int refreshIntervalSec: {
@@ -26,6 +31,12 @@ Panel {
 
   // glance | setup | form
   property string view: "glance"
+  // map (default) | list within glance
+  property string glanceTab: "map"
+  property var mapEdges: []
+  property var mapLayout: []
+  property string mapSelectedId: ""
+  property real edgePhase: 0
   property bool loading: false
   property bool expectedStop: false
   property string error: ""
@@ -47,6 +58,7 @@ Panel {
   property string formCheck: "http"     // http | tcp
   property string formUrl: ""
   property string formPort: ""
+  property bool formNotify: true
   property bool formConfirmDelete: false
   property bool formFieldFocused: false
 
@@ -64,6 +76,67 @@ Panel {
     if (s === "up") return root.foreground
     if (s === "down") return root.urgent
     return root.muted
+  }
+
+  function glanceRowById(id) {
+    var sid = String(id || "")
+    var bands = [root.machines, root.lan, root.proxies]
+    var b, i, row
+    for (b = 0; b < bands.length; b++) {
+      for (i = 0; i < bands[b].length; i++) {
+        row = bands[b][i]
+        if (String(row.id || "") === sid) return row
+      }
+    }
+    return null
+  }
+
+  readonly property int mapLanCap: 12
+  readonly property int mapCardH: Style.space(76)
+
+  function rttHot(row) {
+    if (!row || String(row.status) !== "up") return false
+    var n = Number(row.rtt_ms)
+    return isFinite(n) && n > 2
+  }
+
+  function edgePulseSec(rowA, rowB) {
+    var ms = 0
+    if (rowA && rowA.rtt_ms != null) ms = Math.max(ms, Number(rowA.rtt_ms))
+    if (rowB && rowB.rtt_ms != null) ms = Math.max(ms, Number(rowB.rtt_ms))
+    if (!isFinite(ms) || ms <= 0) return 2.5
+    return Math.max(0.6, Math.min(3.5, ms / 40))
+  }
+
+  function recalcMapLayout() {
+    if (!mapArea || mapArea.width <= 0) return
+    var w = mapArea.width
+    var layout = []
+    function band(rows, subline, y, cap) {
+      var n = cap > 0 ? Math.min(rows.length, cap) : rows.length
+      if (n <= 0) return
+      var gap = w / (n + 1)
+      var cardW = Math.max(Style.space(72), Math.min(Style.space(108), gap - Style.space(6)))
+      for (var i = 0; i < n; i++) {
+        var row = rows[i]
+        layout.push({
+          id: String(row.id || ""),
+          label: String(row.label || row.id || ""),
+          subline: subline || String(row.check || "proxy"),
+          status: String(row.status || "unknown"),
+          rtt_ms: row.rtt_ms,
+          x: gap * (i + 1) - cardW / 2,
+          y: y,
+          w: cardW,
+          h: root.mapCardH
+        })
+      }
+    }
+    band(root.machines, "machine", Style.space(28), 0)
+    band(root.lan, "host", Style.space(172), root.mapLanCap)
+    band(root.proxies, "", Style.space(316), 0)
+    root.mapLayout = layout
+    if (edgeCanvas) edgeCanvas.requestPaint()
   }
 
   function rttText(row) {
@@ -101,6 +174,7 @@ Panel {
     root.proxies = data.proxies instanceof Array ? data.proxies : []
     root.error = ""
     root.loading = false
+    root.recalcMapLayout()
   }
 
   function refresh() {
@@ -148,6 +222,89 @@ Panel {
     if (root.opened) refresh()
   }
 
+  function notifyEnabledForNodeId(sid) {
+    var inv = root.invNodeById(sid)
+    return !inv || inv.notify !== false
+  }
+
+  function invNodeById(sid) {
+    var id = String(sid || "")
+    var i
+    for (i = 0; i < root.nodes.length; i++) {
+      if (String(root.nodes[i].id || "") === id) return root.nodes[i]
+    }
+    return null
+  }
+
+  function mapCardTooltip(id, label, status, notifyOn) {
+    var row = root.glanceRowById(id)
+    var lines = [
+      String(label || id),
+      String(status || "unknown").toUpperCase() + " · " + root.rttText(row)
+    ]
+    var inv = root.invNodeById(id)
+    if (inv) {
+      var tgt = root.nodeTarget(inv)
+      if (tgt) lines.push(tgt)
+    }
+    lines.push("Notify " + (notifyOn ? "on" : "off"))
+    return lines.join("\n")
+  }
+
+  function listRowTooltip(row) {
+    if (!row) return ""
+    var id = String(row.id || "")
+    var lines = [
+      String(row.label || id),
+      String(row.status || "unknown").toUpperCase() + " · " + root.rttText(row)
+    ]
+    var inv = root.invNodeById(id)
+    if (inv) {
+      var tgt = root.nodeTarget(inv)
+      if (tgt) lines.push(tgt)
+      lines.push("Notify " + (inv.notify === false ? "off" : "on"))
+    }
+    return lines.join("\n")
+  }
+
+  function toggleNotifyForNodeId(sid) {
+    var id = String(sid || "")
+    if (!id) return
+    var next = []
+    var i, n
+    for (i = 0; i < root.nodes.length; i++) {
+      n = JSON.parse(JSON.stringify(root.nodes[i]))
+      if (String(n.id) === id) {
+        if (n.notify === false) delete n.notify
+        else n.notify = false
+      }
+      next.push(n)
+    }
+    root.mapSelectedId = id
+    root.writeNodes(next)
+  }
+
+  readonly property string glanceStatusLine: {
+    if (root.loading) return "PROBING"
+    if (root.error) return "ERROR"
+    var down = 0
+    var bands = [root.machines, root.lan, root.proxies]
+    var b, i
+    for (b = 0; b < bands.length; b++) {
+      for (i = 0; i < bands[b].length; i++) {
+        if (String(bands[b][i].status) === "down") down++
+      }
+    }
+    if (down > 0) return "LIVE · " + down + " DOWN"
+    return "LIVE · ALL CLEAR"
+  }
+
+  readonly property color glanceStatusTint: {
+    if (root.error) return root.urgent
+    if (glanceStatusLine.indexOf("DOWN") >= 0) return root.urgent
+    return root.ink
+  }
+
   function goFormNew() {
     root.formIsNew = true
     root.formId = ""
@@ -158,6 +315,7 @@ Panel {
     root.formCheck = "http"
     root.formUrl = ""
     root.formPort = ""
+    root.formNotify = true
     root.formConfirmDelete = false
     root.view = "form"
   }
@@ -172,6 +330,7 @@ Panel {
     root.formCheck = String(node.check || "http")
     root.formUrl = String(node.url || "")
     root.formPort = (node.port === null || node.port === undefined) ? "" : String(node.port)
+    root.formNotify = node.notify !== false
     root.formConfirmDelete = false
     root.view = "form"
   }
@@ -211,7 +370,9 @@ Panel {
       return
     }
     root.nodes = data.nodes instanceof Array ? data.nodes : []
+    root.mapEdges = data.edges instanceof Array ? data.edges : []
     root.inventoryLoading = false
+    root.recalcMapLayout()
     if (data.migratedFromV1) {
       // migrate once on first setup open when still on v1 file
       if (invMigrateProc.running) invMigrateProc.running = false
@@ -234,6 +395,7 @@ Panel {
       if (dns) node.dns = dns
       node.ip = ip ? ip : null
       if (!dns && !ip) return null
+      if (!root.formNotify) node.notify = false
       return node
     }
     node.check = String(root.formCheck || "tcp")
@@ -241,6 +403,7 @@ Panel {
       var url = String(root.formUrl || "").trim()
       if (!url) return null
       node.url = url
+      if (!root.formNotify) node.notify = false
       return node
     }
     if (dns) node.dns = dns
@@ -250,6 +413,7 @@ Panel {
     if (!isFinite(port)) return null
     if (!dns && !ip) return null
     node.port = port
+    if (!root.formNotify) node.notify = false
     return node
   }
 
@@ -300,6 +464,9 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       root.view = "glance"
+      root.glanceTab = "map"
+      root.mapSelectedId = ""
+      loadInventory()
       refresh()
     } else {
       root.view = "glance"
@@ -368,7 +535,7 @@ Panel {
         if (!root.inventoryError) root.inventoryError = "Save failed"
         return
       }
-      root.view = "setup"
+      if (root.view === "form") root.view = "setup"
       root.formConfirmDelete = false
       root.formFieldFocused = false
       root.loadInventory()
@@ -388,9 +555,23 @@ Panel {
     property string status: "unknown"
     property string metric: ""
     property bool showMetric: true
+    property string hoverTip: ""
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
     height: Style.space(42)
+
+    PanelToolTip {
+      visible: rowMa.containsMouse && hoverTip !== ""
+      text: hoverTip
+      fontFamily: root.fontFamily
+    }
+
+    MouseArea {
+      id: rowMa
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.NoButton
+    }
 
     RowLayout {
       anchors.fill: parent
@@ -508,6 +689,161 @@ Panel {
     font.letterSpacing: 1.1
   }
 
+  component MapCard: Rectangle {
+    id: mapBox
+    property string nodeId: ""
+    property string label: ""
+    property string subline: ""
+    property string status: "unknown"
+    property var rttRow: null
+    property bool selected: false
+    property bool notifyOn: true
+    readonly property bool hot: root.rttHot(rttRow)
+    signal activated()
+    signal notifyClicked()
+
+    width: Style.space(108)
+    height: root.mapCardH
+    radius: Style.space(14)
+    color: {
+      if (cardMa.containsMouse) return Qt.alpha(root.ink, 0.08)
+      if (hot) return Qt.alpha(root.urgent, 0.07)
+      return root.card
+    }
+    border.width: selected || status === "down" ? 2 : 1
+    border.color: Qt.alpha(root.statusColor(status), selected ? 0.9 : (status === "unknown" ? 0.5 : 0.65))
+
+    Rectangle {
+      visible: !mapBox.notifyOn
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.margins: Style.space(8)
+      width: notifyLab.implicitWidth + Style.space(14)
+      height: Style.space(18)
+      radius: Style.space(9)
+      color: Qt.alpha(root.urgent, 0.14)
+      border.width: 1
+      border.color: Qt.alpha(root.urgent, 0.45)
+      z: 2
+      Text {
+        id: notifyLab
+        anchors.centerIn: parent
+        text: "MUTED"
+        color: root.urgent
+        font.family: root.fontFamily
+        font.pixelSize: 8
+        font.bold: true
+        font.letterSpacing: 0.6
+      }
+      MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: mapBox.notifyClicked()
+      }
+    }
+
+    PanelToolTip {
+      visible: cardMa.containsMouse
+      text: root.mapCardTooltip(mapBox.nodeId, mapBox.label, mapBox.status, mapBox.notifyOn)
+      fontFamily: root.fontFamily
+    }
+
+    Column {
+      anchors.fill: parent
+      anchors.margins: Style.space(10)
+      spacing: Style.space(4)
+
+      Text {
+        width: parent.width
+        text: subline.toUpperCase()
+        color: root.inkDim
+        font.family: root.fontFamily
+        font.pixelSize: 10
+        font.letterSpacing: 1.2
+        elide: Text.ElideRight
+      }
+
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(6)
+        Text {
+          text: root.statusGlyph(status)
+          color: root.statusColor(status)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          Layout.preferredWidth: Style.space(12)
+        }
+        Text {
+          text: label
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+          elide: Text.ElideRight
+          Layout.fillWidth: true
+        }
+      }
+
+      Text {
+        width: parent.width
+        text: root.rttText(rttRow)
+        color: hot ? root.urgent : (root.rttText(rttRow) === "—" ? root.inkDim : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+      }
+    }
+
+    Rectangle {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      height: 1
+      color: root.rule
+      opacity: selected ? 0.5 : 0.25
+    }
+
+    MouseArea {
+      id: cardMa
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: mapBox.activated()
+    }
+  }
+
+  // Pulse Panel.qml Action — page/tab pills
+  component TabAction: Rectangle {
+    id: act
+    property string text: ""
+    property bool selected: false
+    signal clicked()
+    implicitWidth: caption.implicitWidth + Style.space(26)
+    implicitHeight: Style.space(34)
+    radius: Style.space(9)
+    color: act.selected ? Qt.alpha(root.ink, Style.selectedFillAlpha)
+                        : tabMa.containsMouse ? Style.hoverFill : Style.normalFill
+    border.color: act.selected ? root.ink
+                               : tabMa.containsMouse ? Style.hoverBorderColor : Style.normalBorderColor
+    Behavior on color { ColorAnimation { duration: 120 } }
+    Text {
+      id: caption
+      anchors.centerIn: parent
+      text: act.text
+      color: act.selected ? root.ink : root.inkDim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.bold: act.selected
+    }
+    MouseArea {
+      id: tabMa
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: act.clicked()
+    }
+  }
+
   component SegBtn: Rectangle {
     property string label: ""
     property bool active: false
@@ -536,7 +872,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "󰌘"
-    tooltipText: "Homelab Mesh"
+    tooltipText: "Lanarchy"
     active: root.opened
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.toggle()
@@ -552,7 +888,11 @@ Panel {
     open: root.opened
     centerOnBar: false
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(390))
+    padding: root.view === "glance" && root.glanceTab === "map" ? Style.space(12) : Style.space(8)
+    borderSpec: root.view === "glance" && root.glanceTab === "map"
+        ? Border.flat(Color.accent, 2) : Border.none()
+    contentWidth: panel.fittedContentWidth(root.view === "glance" && root.glanceTab === "map"
+        ? Style.space(1120) : Style.space(390))
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
 
     PanelKeyCatcher {
@@ -564,55 +904,137 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (root.view !== "glance") return
-        if (String(text || "").toLowerCase() === "r") root.refresh()
+        var k = String(text || "").toLowerCase()
+        if (k === "r") root.refresh()
+        if (k === "m") root.glanceTab = "map"
+        if (k === "l") root.glanceTab = "list"
       }
 
-      Column {
+      Item {
         id: contentColumn
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        spacing: Style.space(8)
+        implicitHeight: glanceBody.implicitHeight
 
-        // Header: title + gear (Setup) / as-of
+        Rectangle {
+          anchors.fill: parent
+          anchors.margins: -Style.space(10)
+          radius: Style.space(14)
+          color: Color.popups.background
+          z: -1
+        }
+
+        Column {
+          id: glanceBody
+          width: parent.width
+          spacing: Style.space(10)
+
+        // Header — Pulse heading + Omastorm status strip
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.view === "glance"
+          Row {
+            width: parent.width
+            spacing: Style.space(10)
+            Column {
+              width: Math.max(Style.space(120), parent.width - Style.space(200))
+              spacing: Style.space(3)
+              Text {
+                text: "LANARCHY"
+                color: root.ink
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                font.letterSpacing: 2.5
+              }
+              Text {
+                width: parent.width
+                text: root.glanceTab === "map" ? "Homelab topology map" : "Machines, LAN, and proxies"
+                color: root.inkDim
+                font.family: root.fontFamily
+                font.pixelSize: 11
+                elide: Text.ElideRight
+              }
+            }
+            Rectangle {
+              id: statusPill
+              height: Style.space(32)
+              width: statusRow.implicitWidth + Style.space(20)
+              radius: Style.space(16)
+              color: Qt.alpha(root.glanceStatusTint, 0.14)
+              border.color: Qt.alpha(root.glanceStatusTint, 0.5)
+              border.width: 1
+              Row {
+                id: statusRow
+                anchors.centerIn: parent
+                spacing: Style.space(7)
+                Rectangle {
+                  width: 6
+                  height: 6
+                  radius: 3
+                  color: root.glanceStatusTint
+                  anchors.verticalCenter: parent.verticalCenter
+                  SequentialAnimation on opacity {
+                    running: root.opened && !root.loading && !root.error
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.35; duration: 900 }
+                    NumberAnimation { to: 1; duration: 900 }
+                  }
+                }
+                Text {
+                  text: root.glanceStatusLine + (root.asOfShort() ? " · " + root.asOfShort() : "")
+                  color: root.ink
+                  font.family: root.fontFamily
+                  font.pixelSize: 9
+                  font.bold: true
+                }
+              }
+            }
+          }
+          Row {
+            width: parent.width
+            spacing: Style.space(8)
+            TabAction {
+              text: "Map"
+              selected: root.glanceTab === "map"
+              onClicked: root.glanceTab = "map"
+            }
+            TabAction {
+              text: "List"
+              selected: root.glanceTab === "list"
+              onClicked: root.glanceTab = "list"
+            }
+            Item { width: Style.space(8); height: 1 }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "⚙ Setup"
+              color: root.inkDim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Style.space(8)
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.goSetup()
+              }
+            }
+          }
+        }
+
         Item {
           width: parent.width
           height: Style.space(28)
+          visible: root.view !== "glance"
           Text {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            text: root.view === "glance" ? "Homelab Mesh"
-                : (root.view === "setup" ? "Setup" : (root.formIsNew ? "Add node" : "Edit node"))
-            color: root.foreground
+            text: root.view === "setup" ? "Setup" : (root.formIsNew ? "Add node" : "Edit node")
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             font.bold: true
-          }
-          Text {
-            id: gearBtn
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            visible: root.view === "glance"
-            text: "⚙"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            MouseArea {
-              anchors.fill: parent
-              anchors.margins: -Style.space(6)
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.goSetup()
-            }
-          }
-          Text {
-            anchors.right: gearBtn.visible ? gearBtn.left : parent.right
-            anchors.rightMargin: gearBtn.visible ? Style.space(12) : 0
-            anchors.verticalCenter: parent.verticalCenter
-            visible: root.view === "glance"
-            text: root.loading ? "probing…" : root.asOfShort()
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
           }
         }
 
@@ -642,51 +1064,206 @@ Panel {
           spacing: Style.space(8)
           visible: root.view === "glance"
 
-          BandCap { title: "MACHINES"; width: parent.width }
-          Column {
+          Rectangle {
             width: parent.width
-            spacing: 0
+            visible: root.glanceTab === "map"
+            radius: Style.space(14)
+            color: Color.popups.background
+            border.width: 1
+            border.color: Qt.alpha(root.ink, 0.17)
+            implicitHeight: mapArea.height + Style.space(16)
+
+            Item {
+            id: mapArea
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Style.space(8)
+            height: Style.space(420)
+            onWidthChanged: root.recalcMapLayout()
+
+            Timer {
+              interval: 50
+              running: root.opened && root.view === "glance" && root.glanceTab === "map"
+              repeat: true
+              onTriggered: {
+                root.edgePhase = (root.edgePhase + 0.05) % 1000
+                edgeCanvas.requestPaint()
+              }
+            }
+
+            Canvas {
+              id: edgeCanvas
+              anchors.fill: parent
+              onPaint: {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                var pos = {}
+                var i, box
+                for (i = 0; i < root.mapLayout.length; i++) {
+                  box = root.mapLayout[i]
+                  pos[box.id] = {
+                    x: box.x + box.w / 2,
+                    y: box.y + box.h / 2
+                  }
+                }
+                var calm = Qt.alpha(root.ink, 0.35)
+                var hot = Qt.alpha(root.urgent, 0.6)
+                for (i = 0; i < root.mapEdges.length; i++) {
+                  var e = root.mapEdges[i]
+                  var a = pos[String(e.from || "")]
+                  var b = pos[String(e.to || "")]
+                  if (!a || !b) continue
+                  var rowA = root.glanceRowById(e.from)
+                  var rowB = root.glanceRowById(e.to)
+                  var period = root.edgePulseSec(rowA, rowB)
+                  ctx.strokeStyle = (root.rttHot(rowA) || root.rttHot(rowB)) ? hot : calm
+                  ctx.lineWidth = 1.5
+                  ctx.setLineDash([6, 10])
+                  ctx.lineDashOffset = -root.edgePhase * (40 / period)
+                  ctx.beginPath()
+                  var mx = (a.x + b.x) / 2
+                  ctx.moveTo(a.x, a.y)
+                  ctx.bezierCurveTo(mx, a.y, mx, b.y, b.x, b.y)
+                  ctx.stroke()
+                }
+              }
+            }
+
             Repeater {
-              model: root.machines
-              MeshRow {
+              model: root.mapLayout
+              delegate: MapCard {
                 required property var modelData
-                width: parent.width
-                label: String(modelData.label || modelData.id || "")
+                x: modelData.x
+                y: modelData.y
+                width: modelData.w
+                nodeId: String(modelData.id || "")
+                label: String(modelData.label || "")
+                subline: String(modelData.subline || "")
                 status: String(modelData.status || "unknown")
-                metric: root.rttText(modelData)
+                rttRow: modelData
+                selected: root.mapSelectedId === String(modelData.id || "")
+                notifyOn: root.notifyEnabledForNodeId(nodeId)
+                onActivated: root.mapSelectedId = nodeId
+                onNotifyClicked: root.toggleNotifyForNodeId(nodeId)
+              }
+            }
+
+            Text {
+              visible: root.lan.length > root.mapLanCap
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(4)
+              y: Style.space(172) + root.mapCardH + Style.space(4)
+              text: "+" + (root.lan.length - root.mapLanCap) + " more LAN hosts in List"
+              color: root.inkDim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            }
+          }
+
+          Rectangle {
+            width: parent.width
+            visible: root.glanceTab === "map"
+            radius: Style.space(4)
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.05)
+            border.width: 1
+            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+            implicitHeight: mapDetail.implicitHeight + Style.space(16)
+            Column {
+              id: mapDetail
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              spacing: Style.space(6)
+              Text {
+                width: parent.width
+                color: root.mapSelectedId ? root.foreground : root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.Wrap
+                text: {
+                  if (!root.mapSelectedId) return "Click a node · Esc back"
+                  var row = root.glanceRowById(root.mapSelectedId)
+                  return String(row ? row.label : root.mapSelectedId) + " · "
+                    + String(row ? row.status : "unknown") + " · "
+                    + root.rttText(row)
+                }
+              }
+              Row {
+                visible: root.mapSelectedId !== ""
+                spacing: Style.space(8)
+                SegBtn {
+                  label: root.notifyEnabledForNodeId(root.mapSelectedId) ? "Notify on" : "Notify off"
+                  active: root.notifyEnabledForNodeId(root.mapSelectedId)
+                  onTapped: root.toggleNotifyForNodeId(root.mapSelectedId)
+                }
+                SegBtn {
+                  label: "Edit in Setup"
+                  active: false
+                  onTapped: {
+                    var node = root.invNodeById(root.mapSelectedId)
+                    root.goSetup()
+                    if (node) root.goFormEdit(node)
+                  }
+                }
               }
             }
           }
 
-          BandCap { title: "LAN"; width: parent.width }
-          ListView {
-            id: lanList
-            width: parent.width
-            height: Math.min(Style.space(42) * 10, Style.space(42) * Math.max(1, root.lan.length))
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            model: root.lan
-            delegate: MeshRow {
-              required property var modelData
-              label: String(modelData.label || modelData.id || "")
-              status: String(modelData.status || "unknown")
-              metric: root.rttText(modelData)
-            }
-          }
-
-          BandCap { title: "PROXIES"; width: parent.width }
           Column {
             width: parent.width
-            spacing: 0
-            Repeater {
-              model: root.proxies
-              MeshRow {
+            spacing: Style.space(8)
+            visible: root.glanceTab === "list"
+
+            BandCap { title: "MACHINES"; width: parent.width }
+            Column {
+              width: parent.width
+              spacing: 0
+              Repeater {
+                model: root.machines
+                MeshRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: String(modelData.status || "unknown")
+                  metric: root.rttText(modelData)
+                  hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+            }
+
+            BandCap { title: "LAN"; width: parent.width }
+            ListView {
+              id: lanList
+              width: parent.width
+              height: Math.min(Style.space(42) * 10, Style.space(42) * Math.max(1, root.lan.length))
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              model: root.lan
+              delegate: MeshRow {
                 required property var modelData
-                width: parent.width
                 label: String(modelData.label || modelData.id || "")
                 status: String(modelData.status || "unknown")
-                metric: ""
-                showMetric: false
+                metric: root.rttText(modelData)
+                hoverTip: root.listRowTooltip(modelData)
+              }
+            }
+
+            BandCap { title: "PROXIES"; width: parent.width }
+            Column {
+              width: parent.width
+              spacing: 0
+              Repeater {
+                model: root.proxies
+                MeshRow {
+                  required property var modelData
+                  width: parent.width
+                  label: String(modelData.label || modelData.id || "")
+                  status: String(modelData.status || "unknown")
+                  metric: ""
+                  showMetric: false
+                  hoverTip: root.listRowTooltip(modelData)
+                }
               }
             }
           }
@@ -694,7 +1271,7 @@ Panel {
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "Esc · r refresh · ⚙ Setup"
+            text: "m map · l list · r refresh · Esc back"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -807,6 +1384,15 @@ Panel {
             SegBtn { label: "machine"; active: root.formType === "machine"; onTapped: root.formType = "machine" }
             SegBtn { label: "host"; active: root.formType === "host"; onTapped: root.formType = "host" }
             SegBtn { label: "proxy"; active: root.formType === "proxy"; onTapped: root.formType = "proxy" }
+          }
+
+          Row {
+            spacing: Style.space(6)
+            SegBtn {
+              label: root.formNotify ? "Notify on" : "Notify off"
+              active: root.formNotify
+              onTapped: root.formNotify = !root.formNotify
+            }
           }
 
           Text {
@@ -977,6 +1563,7 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
+        }
         }
       }
     }

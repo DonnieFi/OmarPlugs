@@ -1,173 +1,221 @@
 {
-  "machines": [
+  "schemaVersion": 2,
+  "nodes": [
     {
       "id": "deba",
+      "type": "machine",
       "label": "deba",
-      "host": "deba.lan"
+      "dns": "deba.lan",
+      "ip": null
     },
     {
       "id": "kiritsuke",
+      "type": "machine",
       "label": "kiritsuke",
-      "host": "kiritsuke.lan"
+      "dns": "kiritsuke.lan",
+      "ip": null
     },
     {
       "id": "aka",
+      "type": "machine",
       "label": "aka",
-      "host": "aka.lan"
+      "dns": "aka.lan",
+      "ip": null
     },
     {
       "id": "suji",
+      "type": "machine",
       "label": "suji",
-      "host": "suji.lan"
-    }
-  ],
-  "lan": [
+      "dns": "suji.lan",
+      "ip": null
+    },
     {
       "id": "bernie.lan",
+      "type": "host",
       "label": "bernie.lan",
-      "host": "bernie.lan"
+      "dns": "bernie.lan",
+      "ip": null
     },
     {
       "id": "cameras.lan",
+      "type": "host",
       "label": "cameras.lan",
-      "host": "cameras.lan"
+      "dns": "cameras.lan",
+      "ip": null
     },
     {
       "id": "cockpit.lan",
+      "type": "host",
       "label": "cockpit.lan",
-      "host": "cockpit.lan"
+      "dns": "cockpit.lan",
+      "ip": null
     },
     {
       "id": "dockge.lan",
+      "type": "host",
       "label": "dockge.lan",
-      "host": "dockge.lan"
+      "dns": "dockge.lan",
+      "ip": null
     },
     {
       "id": "draw.lan",
+      "type": "host",
       "label": "draw.lan",
-      "host": "draw.lan"
+      "dns": "draw.lan",
+      "ip": null
     },
     {
       "id": "files.lan",
+      "type": "host",
       "label": "files.lan",
-      "host": "files.lan"
+      "dns": "files.lan",
+      "ip": null
     },
     {
       "id": "frigate.lan",
+      "type": "host",
       "label": "frigate.lan",
-      "host": "frigate.lan"
+      "dns": "frigate.lan",
+      "ip": null
     },
     {
       "id": "git.lan",
+      "type": "host",
       "label": "git.lan",
-      "host": "git.lan"
+      "dns": "git.lan",
+      "ip": null
     },
     {
       "id": "ha.lan",
+      "type": "host",
       "label": "ha.lan",
-      "host": "ha.lan"
+      "dns": "ha.lan",
+      "ip": null
     },
     {
       "id": "langfuse.lan",
+      "type": "host",
       "label": "langfuse.lan",
-      "host": "langfuse.lan"
+      "dns": "langfuse.lan",
+      "ip": null
     },
     {
       "id": "notes.lan",
+      "type": "host",
       "label": "notes.lan",
-      "host": "notes.lan"
+      "dns": "notes.lan",
+      "ip": null
     },
     {
       "id": "pihole1.lan",
+      "type": "host",
       "label": "pihole1.lan",
-      "host": "pihole1.lan"
+      "dns": "pihole1.lan",
+      "ip": null
     },
     {
       "id": "pihole2.lan",
+      "type": "host",
       "label": "pihole2.lan",
-      "host": "pihole2.lan"
+      "dns": "pihole2.lan",
+      "ip": null
     },
     {
       "id": "print.lan",
+      "type": "host",
       "label": "print.lan",
-      "host": "print.lan"
+      "dns": "print.lan",
+      "ip": null
     },
     {
       "id": "search.lan",
+      "type": "host",
       "label": "search.lan",
-      "host": "search.lan"
+      "dns": "search.lan",
+      "ip": null
     },
     {
       "id": "stable.lan",
+      "type": "host",
       "label": "stable.lan",
-      "host": "stable.lan"
+      "dns": "stable.lan",
+      "ip": null
     },
     {
       "id": "tools.lan",
+      "type": "host",
       "label": "tools.lan",
-      "host": "tools.lan"
-    }
-  ],
-  "proxies": [
+      "dns": "tools.lan",
+      "ip": null
+    },
     {
       "id": "caddy-health",
+      "type": "proxy",
       "label": "caddy",
       "check": "http",
       "url": "http://192.168.1.92/healthz"
     },
     {
       "id": "bernie-api",
+      "type": "proxy",
       "label": "bernie-api",
       "check": "http",
       "url": "http://suji.lan:8000/api/health"
     },
     {
       "id": "bernie",
+      "type": "proxy",
       "label": "bernie.lan",
       "check": "tcp",
-      "host": "bernie.lan",
+      "dns": "bernie.lan",
       "port": 443
     },
     {
       "id": "git",
+      "type": "proxy",
       "label": "git.lan",
       "check": "tcp",
-      "host": "git.lan",
+      "dns": "git.lan",
       "port": 443
     },
     {
       "id": "ha",
+      "type": "proxy",
       "label": "ha.lan",
       "check": "tcp",
-      "host": "ha.lan",
+      "dns": "ha.lan",
       "port": 443
     },
     {
       "id": "frigate",
+      "type": "proxy",
       "label": "frigate.lan",
       "check": "tcp",
-      "host": "frigate.lan",
+      "dns": "frigate.lan",
       "port": 443
     },
     {
       "id": "search",
+      "type": "proxy",
       "label": "search.lan",
       "check": "tcp",
-      "host": "search.lan",
+      "dns": "search.lan",
       "port": 443
     },
     {
       "id": "files",
+      "type": "proxy",
       "label": "files.lan",
       "check": "tcp",
-      "host": "files.lan",
+      "dns": "files.lan",
       "port": 443
     },
     {
       "id": "dockge",
+      "type": "proxy",
       "label": "dockge.lan",
       "check": "tcp",
-      "host": "dockge.lan",
+      "dns": "dockge.lan",
       "port": 443
     }
   ]

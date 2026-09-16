@@ -1,0 +1,239 @@
+"""LAN telemetry with no extra packages: SSH sysfs, curl timing, neigh table, DNS, WoL."""
+from __future__ import annotations
+
+import os
+import re
+import socket
+import subprocess
+import time
+from pathlib import Path
+from typing import Any
+
+SSH_TIMEOUT_S = 4.0
+HTTP_TIMEOUT_S = 4.0
+C_LOCALE = dict(os.environ, LC_ALL="C", LANG="C")
+
+# One remote shell prints link lines (L), /proc/net/dev rows (D) and uptime (U).
+REMOTE_SCRIPT = r"""
+for i in /sys/class/net/*; do
+  n=$(basename "$i")
+  [ -e "$i/device" ] || continue
+  [ "$(cat "$i/carrier" 2>/dev/null)" = 1 ] || continue
+  if [ -d "$i/wireless" ]; then
+    br=$(iw dev "$n" link 2>/dev/null | sed -n 's/.*tx bitrate: \([0-9.]*\).*/\1/p' | head -1)
+    echo "L $n ${br:-0} full wifi"
+  else
+    echo "L $n $(cat "$i/speed" 2>/dev/null) $(cat "$i/duplex" 2>/dev/null) eth"
+  fi
+done
+tail -n +3 /proc/net/dev | sed 's/^/D /'
+sed 's/^/U /' /proc/uptime
+"""
+
+
+def _run(args: list[str], timeout: float, stdin: str | None = None) -> str:
+    try:
+        p = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout, check=False, env=C_LOCALE, input=stdin
+        )
+        return p.stdout if p.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def local_addresses() -> set[str]:
+    out: set[str] = set()
+    try:
+        import json
+
+        for entry in json.loads(_run(["ip", "-j", "addr"], 2) or "[]"):
+            for a in entry.get("addr_info", []):
+                if a.get("local"):
+                    out.add(str(a["local"]))
+    except (ValueError, TypeError):
+        pass
+    return out
+
+
+def is_local_host(host: str) -> bool:
+    if not host:
+        return False
+    short = host.split(".")[0].lower()
+    if short in (socket.gethostname().lower(), "localhost"):
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    addrs = {str(i[4][0]) for i in infos}
+    return bool(addrs & local_addresses())
+
+
+def parse_machine_report(text: str) -> dict[str, Any]:
+    links: list[dict] = []
+    counters: dict[str, dict] = {}
+    uptime = None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("L "):
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    speed = float(parts[2])
+                except ValueError:
+                    speed = 0.0
+                links.append(
+                    {"iface": parts[1], "speed_mbit": speed if speed > 0 else None, "duplex": parts[3], "kind": parts[4]}
+                )
+        elif line.startswith("D "):
+            body = line[2:]
+            name, _, rest = body.partition(":")
+            v = rest.split()
+            if len(v) >= 16:
+                try:
+                    counters[name.strip()] = {"rx": int(v[0]), "tx": int(v[8])}
+                except ValueError:
+                    pass
+        elif line.startswith("U "):
+            try:
+                uptime = float(line.split()[1])
+            except (IndexError, ValueError):
+                uptime = None
+    active = {l["iface"] for l in links}
+    rx = sum(c["rx"] for n, c in counters.items() if n in active)
+    tx = sum(c["tx"] for n, c in counters.items() if n in active)
+    return {"links": links, "rx_bytes": rx if active else None, "tx_bytes": tx if active else None, "uptime_s": uptime}
+
+
+def collect_machine(host: str, ssh_user: str | None = None) -> dict[str, Any] | None:
+    """Link + counter report for a machine; local sysfs for this box, SSH otherwise."""
+    if is_local_host(host):
+        text = _run(["bash", "-c", REMOTE_SCRIPT], SSH_TIMEOUT_S)
+    else:
+        target = f"{ssh_user}@{host}" if ssh_user else host
+        text = _run(
+            [
+                "ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={int(SSH_TIMEOUT_S) - 1}",
+                "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR", target, "bash", "-s",
+            ],
+            SSH_TIMEOUT_S + 1.0,
+            stdin=REMOTE_SCRIPT,
+        )
+    if not text.strip():
+        return None
+    return parse_machine_report(text)
+
+
+def primary_link(report: dict | None) -> dict | None:
+    if not report:
+        return None
+    links = report.get("links") or []
+    eth = [l for l in links if l.get("kind") == "eth" and l.get("speed_mbit")]
+    if eth:
+        return max(eth, key=lambda l: l["speed_mbit"])
+    return links[0] if links else None
+
+
+def link_grade(link: dict | None) -> str:
+    """ok | degraded | unknown. Ethernet under 1000 Mbit reads as a bad cable or port."""
+    if not link or not link.get("speed_mbit"):
+        return "unknown"
+    if link.get("kind") == "eth" and float(link["speed_mbit"]) < 1000:
+        return "degraded"
+    return "ok"
+
+
+def rates_from(prev: dict | None, ts_prev: float | None, report: dict | None, ts_now: float) -> dict | None:
+    if not report or not prev or ts_prev is None:
+        return None
+    dt = ts_now - ts_prev
+    if dt <= 0 or report.get("rx_bytes") is None or prev.get("rx_bytes") is None:
+        return None
+    rx = max(0, report["rx_bytes"] - prev["rx_bytes"]) / dt
+    tx = max(0, report["tx_bytes"] - prev["tx_bytes"]) / dt
+    return {"rx_bps": rx, "tx_bps": tx}
+
+
+def http_timing(url: str) -> dict[str, Any]:
+    out = _run(
+        [
+            "curl", "-sk", "-o", "/dev/null", "--max-time", str(HTTP_TIMEOUT_S),
+            "-w", "%{http_code} %{time_connect} %{time_starttransfer}", url,
+        ],
+        HTTP_TIMEOUT_S + 1.0,
+    )
+    parts = out.split()
+    if len(parts) != 3:
+        return {}
+    try:
+        code = int(parts[0])
+        return {"http_code": code, "connect_ms": float(parts[1]) * 1000, "ttfb_ms": float(parts[2]) * 1000}
+    except ValueError:
+        return {}
+
+
+def tcp_timing(host: str, port: int) -> float | None:
+    t = time.perf_counter()
+    try:
+        with socket.create_connection((host, int(port)), timeout=HTTP_TIMEOUT_S):
+            return (time.perf_counter() - t) * 1000
+    except OSError:
+        return None
+
+
+def dns_time_ms(name: str) -> float | None:
+    t = time.perf_counter()
+    try:
+        socket.getaddrinfo(name, None, socket.AF_INET)
+    except OSError:
+        return None
+    return (time.perf_counter() - t) * 1000
+
+
+def neighbors() -> list[dict]:
+    import json
+
+    rows: list[dict] = []
+    try:
+        for r in json.loads(_run(["ip", "-j", "-4", "neigh"], 2) or "[]"):
+            if not r.get("lladdr"):
+                continue
+            state = r.get("state") or []
+            if "FAILED" in state or "INCOMPLETE" in state:
+                continue
+            rows.append({"ip": str(r.get("dst")), "mac": str(r["lladdr"]).lower(), "state": state[0] if state else ""})
+    except (ValueError, TypeError):
+        pass
+    return rows
+
+
+def resolve_ipv4(host: str) -> str | None:
+    try:
+        return socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0]
+    except (OSError, IndexError):
+        return None
+
+
+def send_wol(mac: str, broadcast: str = "255.255.255.255", port: int = 9) -> bool:
+    hexmac = re.sub(r"[^0-9a-fA-F]", "", mac or "")
+    if len(hexmac) != 12:
+        return False
+    payload = b"\xff" * 6 + bytes.fromhex(hexmac) * 16
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.sendto(payload, (broadcast, port))
+        return True
+    except OSError:
+        return False
+
+
+def fmt_rate(bps: float | None) -> str:
+    if bps is None:
+        return "—"
+    v = float(bps)
+    for unit in ("B/s", "kB/s", "MB/s", "GB/s"):
+        if v < 1000:
+            return f"{v:.0f} {unit}" if unit == "B/s" else f"{v:.1f} {unit}"
+        v /= 1000
+    return f"{v:.1f} TB/s"

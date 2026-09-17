@@ -97,8 +97,7 @@ def apply_status_updates(
         elif status == "up":
             entry["downStreak"] = 0
             entry["alerted"] = False
-        else:
-            entry["downStreak"] = 0
+        # unknown / other: leave streak and alerted alone
     return sent
 
 

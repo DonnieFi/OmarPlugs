@@ -718,18 +718,29 @@ Panel {
   function buildFormNode() {
     var label = String(root.formLabel || "").trim()
     if (!label) return null
-    var node = {
-      id: root.formIsNew ? root.slugify(label) : String(root.formId || root.slugify(label)),
-      type: String(root.formType || "machine"),
-      label: label
+    var node
+    if (root.formIsNew) {
+      node = {}
+    } else {
+      var existing = root.invNodeById(root.formId)
+      if (!existing) return null
+      node = JSON.parse(JSON.stringify(existing))
     }
+    node.id = root.formIsNew ? root.slugify(label) : String(root.formId || root.slugify(label))
+    node.type = String(root.formType || "machine")
+    node.label = label
     var dns = String(root.formDns || "").trim()
     var ip = String(root.formIp || "").trim()
     if (node.type === "machine" || node.type === "host") {
+      delete node.check
+      delete node.url
+      delete node.port
       if (dns) node.dns = dns
+      else delete node.dns
       node.ip = ip ? ip : null
       if (!dns && !ip) return null
-      if (!root.formNotify) node.notify = false
+      if (root.formNotify) delete node.notify
+      else node.notify = false
       return node
     }
     node.check = String(root.formCheck || "tcp")
@@ -737,17 +748,24 @@ Panel {
       var url = String(root.formUrl || "").trim()
       if (!url) return null
       node.url = url
-      if (!root.formNotify) node.notify = false
+      delete node.dns
+      delete node.ip
+      delete node.port
+      if (root.formNotify) delete node.notify
+      else node.notify = false
       return node
     }
     if (dns) node.dns = dns
+    else delete node.dns
     if (ip) node.ip = ip
     else node.ip = null
+    delete node.url
     var port = parseInt(String(root.formPort || ""), 10)
     if (!isFinite(port)) return null
     if (!dns && !ip) return null
     node.port = port
-    if (!root.formNotify) node.notify = false
+    if (root.formNotify) delete node.notify
+    else node.notify = false
     return node
   }
 

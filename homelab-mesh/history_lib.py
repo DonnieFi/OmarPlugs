@@ -149,23 +149,33 @@ def save_history(history: dict, path: Path | None = None) -> Path:
     return atomic_write_json(path or history_path(), history, indent=None)
 
 
-def sparkline_values(history: dict, node_id: str, n: int = 32) -> list[float | None]:
+def _num_or_none(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tail_samples(history: dict, node_id: str, n: int) -> list[dict]:
     series = history.get("series") if isinstance(history.get("series"), dict) else {}
     block = series.get(str(node_id)) or {}
     samples = block.get("samples") if isinstance(block, dict) else []
     if not isinstance(samples, list):
         return []
-    tail = samples[-n:]
-    out: list[float | None] = []
-    for s in tail:
-        if not isinstance(s, dict):
-            continue
-        rtt = s.get("rtt_ms")
-        if rtt is None:
-            out.append(None)
-        else:
-            try:
-                out.append(float(rtt))
-            except (TypeError, ValueError):
-                out.append(None)
-    return out
+    return [s for s in samples[-max(0, n):] if isinstance(s, dict)]
+
+
+def sparkline_values(history: dict, node_id: str, n: int = 32) -> list[float | None]:
+    return [_num_or_none(s.get("rtt_ms")) for s in _tail_samples(history, node_id, n)]
+
+
+def sparkline_payload(history: dict, node_id: str, n: int = 32) -> dict:
+    """Last n samples. values is rtt_ms. rx_bps is omitted-as-null, never invented."""
+    tail = _tail_samples(history, node_id, n)
+    return {
+        "id": str(node_id),
+        "values": [_num_or_none(s.get("rtt_ms")) for s in tail],
+        "rx_bps": [_num_or_none(s.get("rx_bps")) for s in tail],
+    }

@@ -289,8 +289,18 @@ Panel {
     return null
   }
 
+  function sparklineIdFor(row) {
+    if (!row) return ""
+    if (String(row.id || "") === "__lan__") return ""
+    if (row.members && row.members.length) {
+      var m = row.members[0]
+      return String((m && m.id) || "")
+    }
+    return String(row.id || "")
+  }
+
   readonly property int mapLanCap: 12
-  readonly property int mapCardH: Style.space(76)
+  readonly property int mapCardH: Style.space(94)
 
   function rttHot(row) {
     if (!row || String(row.status) !== "up") return false
@@ -332,7 +342,8 @@ Panel {
         h: hCard,
         kind: kind || subline,
         metric: metric || "",
-        lights: lights || []
+        lights: lights || [],
+        sparklineId: root.sparklineIdFor(row)
       })
     }
     function rowBand(rows, subline, y, kind, metricFn, lightsFn) {
@@ -348,12 +359,12 @@ Panel {
               lightsFn ? lightsFn(row) : [])
       }
     }
-    rowBand(root.machines, "machine", Style.space(22), "machine", root.machineMetric, null)
+    rowBand(root.machines, "machine", Style.space(16), "machine", root.machineMetric, null)
     var hub = root.hubGroup()
     var hubW = Style.space(128)
-    var hubH = Style.space(84)
+    var hubH = Style.space(100)
     if (hub) {
-      place(hub, "gateway", (w - hubW) / 2, Style.space(112), hubW, hubH, "hub",
+      place(hub, "gateway", (w - hubW) / 2, Style.space(120), hubW, hubH, "hub",
             root.serviceMetric(hub), root.serviceLights(hub))
     }
     var svcs = []
@@ -362,11 +373,11 @@ Panel {
       if (hub && String(root.groups[i].id) === String(hub.id)) continue
       svcs.push(root.groups[i])
     }
-    rowBand(svcs, "service", Style.space(214), "service", root.serviceMetric, root.serviceLights)
+    rowBand(svcs, "service", Style.space(232), "service", root.serviceMetric, root.serviceLights)
     if (root.quietLan.length) {
       var cluster = root.lanClusterRow()
-      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(312),
-            Style.space(300), Style.space(86), "lan", cluster.metric, cluster.lights)
+      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(338),
+            Style.space(300), Style.space(78), "lan", cluster.metric, cluster.lights)
     }
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
@@ -995,12 +1006,13 @@ Panel {
     property bool showMetric: true
     property var lights: []
     property string hoverTip: ""
+    property string nodeId: ""
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
     height: Style.space(22)
 
     PanelToolTip {
-      visible: rowMa.containsMouse && hoverTip !== ""
+      visible: rowMa.containsMouse && hoverTip !== "" && rowSpark.hoverIndex < 0
       text: hoverTip
       fontFamily: root.fontFamily
     }
@@ -1010,7 +1022,6 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.NoButton
-    }
 
     RowLayout {
       anchors.fill: parent
@@ -1030,6 +1041,20 @@ Panel {
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight
         Layout.fillWidth: true
+      }
+      Sparkline {
+        id: rowSpark
+        visible: nodeId !== ""
+        Layout.preferredWidth: 56
+        Layout.preferredHeight: 14
+        Layout.alignment: Qt.AlignVCenter
+        nodeId: nodeId
+        pluginDir: root.pluginDir
+        live: root.opened && root.view === "glance" && root.glanceTab === "list" && nodeId !== ""
+        stroke: root.ink
+        rateStroke: Color.accent
+        muted: root.inkDim
+        fontFamily: root.fontFamily
       }
       Row {
         spacing: 3
@@ -1055,6 +1080,7 @@ Panel {
         horizontalAlignment: Text.AlignRight
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
+    }
     }
   }
 
@@ -1152,6 +1178,7 @@ Panel {
     property string metric: ""
     property var lights: []
     property var rttRow: null
+    property string sparklineId: ""
     property bool selected: false
     property bool notifyOn: true
     readonly property bool isLan: nodeId === "__lan__"
@@ -1202,15 +1229,22 @@ Panel {
     }
 
     PanelToolTip {
-      visible: cardMa.containsMouse
+      visible: cardMa.containsMouse && cardSpark.hoverIndex < 0
       text: root.mapCardTooltip(mapBox.nodeId, mapBox.label, mapBox.status, mapBox.notifyOn)
       fontFamily: root.fontFamily
     }
 
+    MouseArea {
+      id: cardMa
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: mapBox.activated()
+
     Column {
       anchors.fill: parent
       anchors.margins: Style.space(8)
-      spacing: Style.space(4)
+      spacing: Style.space(3)
 
       Text {
         width: parent.width
@@ -1266,6 +1300,20 @@ Panel {
           }
         }
       }
+
+      Sparkline {
+        id: cardSpark
+        width: parent.width
+        height: Style.space(16)
+        nodeId: mapBox.sparklineId
+        pluginDir: root.pluginDir
+        live: root.opened && root.view === "glance" && root.glanceTab === "map" && mapBox.sparklineId !== ""
+        stroke: root.ink
+        rateStroke: Color.accent
+        muted: root.inkDim
+        fontFamily: root.fontFamily
+      }
+    }
     }
 
     Rectangle {
@@ -1275,14 +1323,6 @@ Panel {
       height: 1
       color: root.rule
       opacity: selected ? 0.5 : 0.25
-    }
-
-    MouseArea {
-      id: cardMa
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: mapBox.activated()
     }
   }
 
@@ -1668,6 +1708,7 @@ Panel {
                 metric: String(modelData.metric || "")
                 lights: modelData.lights || []
                 rttRow: modelData
+                sparklineId: String(modelData.sparklineId || "")
                 selected: root.mapSelectedId === String(modelData.id || "")
                 notifyOn: root.notifyEnabledForNodeId(nodeId)
                 onActivated: {
@@ -1779,6 +1820,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: root.displayStatus(modelData)
                   metric: root.machineMetric(modelData)
@@ -1813,6 +1855,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.serviceMetric(modelData)
@@ -1831,6 +1874,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.rttText(modelData)
@@ -1848,6 +1892,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.rttText(modelData)

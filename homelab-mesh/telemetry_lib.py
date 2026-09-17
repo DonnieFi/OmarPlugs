@@ -13,7 +13,8 @@ SSH_TIMEOUT_S = 4.0
 HTTP_TIMEOUT_S = 4.0
 C_LOCALE = dict(os.environ, LC_ALL="C", LANG="C")
 
-# One remote shell prints link lines (L), /proc/net/dev rows (D) and uptime (U).
+# One remote shell prints link lines (L), /proc/net/dev rows (D), uptime (U),
+# and ss -tunH sockets (T). Counts only; no -p, so no extra privilege.
 REMOTE_SCRIPT = r"""
 for i in /sys/class/net/*; do
   n=$(basename "$i")
@@ -28,6 +29,10 @@ for i in /sys/class/net/*; do
 done
 tail -n +3 /proc/net/dev | sed 's/^/D /'
 sed 's/^/U /' /proc/uptime
+if command -v ss >/dev/null 2>&1; then
+  ss -tunH 2>/dev/null | sed 's/^/T /'
+fi
+true
 """
 
 
@@ -69,9 +74,50 @@ def is_local_host(host: str) -> bool:
     return bool(addrs & local_addresses())
 
 
+def ss_peer_host(peer: str) -> str:
+    """Local/peer column from ss: host:port, [v6]:port, or v6:port."""
+    peer = (peer or "").strip()
+    if peer.startswith("["):
+        end = peer.find("]")
+        host = peer[1:end] if end > 0 else peer
+    else:
+        host = peer.rsplit(":", 1)[0] if peer.count(":") == 1 else peer
+    return host.split("%")[0]
+
+
+def parse_ss_talkers(text: str) -> dict[str, Any] | None:
+    """ESTAB sockets ranked by remote. None when ss is missing or nothing counts."""
+    counts: dict[str, int] = {}
+    total = 0
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("T "):
+            line = line[2:].strip()
+        fields = line.split()
+        if len(fields) < 6:
+            continue
+        proto, state, peer = fields[0], fields[1], fields[5]
+        if not proto.startswith(("tcp", "udp")):
+            continue
+        if proto.startswith("tcp") and state != "ESTAB":
+            continue
+        if peer.startswith("*") or peer.endswith(":*"):
+            continue
+        host = ss_peer_host(peer)
+        if not host or host in ("*", "0.0.0.0", "::"):
+            continue
+        total += 1
+        counts[host] = counts.get(host, 0) + 1
+    if total == 0:
+        return None
+    top = [{"host": h, "count": c} for h, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:4]]
+    return {"total": total, "top": top}
+
+
 def parse_machine_report(text: str) -> dict[str, Any]:
     links: list[dict] = []
     counters: dict[str, dict] = {}
+    talker_lines: list[str] = []
     uptime = None
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -99,10 +145,21 @@ def parse_machine_report(text: str) -> dict[str, Any]:
                 uptime = float(line.split()[1])
             except (IndexError, ValueError):
                 uptime = None
+        elif line.startswith("T "):
+            talker_lines.append(line)
     active = {l["iface"] for l in links}
     rx = sum(c["rx"] for n, c in counters.items() if n in active)
     tx = sum(c["tx"] for n, c in counters.items() if n in active)
-    return {"links": links, "rx_bytes": rx if active else None, "tx_bytes": tx if active else None, "uptime_s": uptime}
+    out: dict[str, Any] = {
+        "links": links,
+        "rx_bytes": rx if active else None,
+        "tx_bytes": tx if active else None,
+        "uptime_s": uptime,
+    }
+    talkers = parse_ss_talkers("\n".join(talker_lines))
+    if talkers:
+        out["talkers"] = talkers
+    return out
 
 
 def collect_machine(host: str, ssh_user: str | None = None) -> dict[str, Any] | None:

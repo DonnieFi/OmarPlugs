@@ -135,6 +135,8 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
         }
     if report.get("uptime_s") is not None:
         row["uptime_s"] = report["uptime_s"]
+    if report.get("talkers"):
+        row["talkers"] = report["talkers"]
     prev = last_counters(hist, row["id"])
     rates = rates_from(prev, prev.get("ts_epoch") if prev else None, report, ts_now)
     if rates:

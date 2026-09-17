@@ -111,6 +111,8 @@ Panel {
       var r = root.fmtRate(row.rates.rx_bps)
       if (r) bits.push("↓" + r)
     }
+    if (row.talkers && row.talkers.total > 0)
+      bits.push(row.talkers.total + " talk")
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) bits.push(up)
@@ -580,6 +582,14 @@ Panel {
         + (row.link.grade === "degraded" ? " (slow port)" : ""))
     if (row.rates && row.rates.rx_bps != null)
       lines.push("↓" + root.fmtRate(row.rates.rx_bps) + "  ↑" + root.fmtRate(row.rates.tx_bps))
+    if (row.talkers && row.talkers.total != null) {
+      var talk = String(row.talkers.total) + " talk"
+      var top = row.talkers.top || []
+      var t
+      for (t = 0; t < top.length && t < 4; t++)
+        talk += "  " + String(top[t].host || "") + "×" + String(top[t].count || 0)
+      lines.push(talk)
+    }
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) lines.push(up)

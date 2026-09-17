@@ -47,3 +47,7 @@ Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from 
 - Prefer the Omarchy plugin develop guide shape for user-facing docs: Install · Usage · Configure · Remove · Dependencies · IPC
 - Screenshots in docs must be panel-only (no desktop chrome)
 - QML theming: use `Color` / `Style` / theme `colors.toml` — not hard-coded status greens
+
+### Commits
+
+Never add `Co-authored-by: Cursor` (or any Cursor/agent co-author trailer). Commits are the user's alone.

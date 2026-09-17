@@ -77,13 +77,9 @@ def apply_status_updates(
         if not nid:
             continue
         entry = nodes.setdefault(nid, {"downStreak": 0, "alerted": False, "lastStatus": status})
-        prev = str(entry.get("lastStatus") or "")
         entry["lastStatus"] = status
         if status == "down":
-            if prev != "down":
-                entry["downStreak"] = 1
-            else:
-                entry["downStreak"] = int(entry.get("downStreak") or 0) + 1
+            entry["downStreak"] = int(entry.get("downStreak") or 0) + 1
             if (
                 node_notify_enabled(inv, nid)
                 and int(entry["downStreak"]) >= threshold

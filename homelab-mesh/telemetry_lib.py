@@ -191,11 +191,16 @@ def dns_time_ms(name: str) -> float | None:
 
 
 def neighbors() -> list[dict]:
+    return parse_neigh(_run(["ip", "-j", "-4", "neigh"], 2))
+
+
+def parse_neigh(text: str) -> list[dict]:
+    """`ip -j -4 neigh` JSON → [{ip, mac, state}] for entries with a resolved lladdr."""
     import json
 
     rows: list[dict] = []
     try:
-        for r in json.loads(_run(["ip", "-j", "-4", "neigh"], 2) or "[]"):
+        for r in json.loads(text or "[]"):
             if not r.get("lladdr"):
                 continue
             state = r.get("state") or []

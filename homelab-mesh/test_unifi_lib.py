@@ -5,7 +5,7 @@ import tempfile
 
 from unifi_lib import (
     _discover,
-    _fmt_mac,
+    fmt_mac,
     _project_client,
     _project_device,
     _project_system,
@@ -64,7 +64,7 @@ def test_config_default_url() -> None:
 
 
 def test_fmt_mac() -> None:
-    assert _fmt_mac("1C6A1B18B4D9") == "1c:6a:1b:18:b4:d9"
+    assert fmt_mac("1C6A1B18B4D9") == "1c:6a:1b:18:b4:d9"
 
 
 def test_read_secrets_dotenv_and_json() -> None:

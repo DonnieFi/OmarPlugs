@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from discover_lib import collect_discover, known_targets, merge_discover
 from history_lib import (
     append_probe_sample,
     last_counters,
@@ -236,6 +237,7 @@ def run_probe(*, write_stdout: bool = True) -> dict:
         proxies_f = [pool.submit(probe_proxy_node, x) for x in grouped["proxies"]]
         meta_f = pool.submit(lan_meta, nodes, ts_now)
         unifi_f = pool.submit(collect_unifi, inv, nodes)
+        discover_f = pool.submit(collect_discover)
         machines = [f.result() for f in machines_f]
         lan = [f.result() for f in lan_f]
         proxies = [f.result() for f in proxies_f]
@@ -244,6 +246,10 @@ def run_probe(*, write_stdout: bool = True) -> dict:
             unifi = unifi_f.result()
         except Exception as e:
             unifi = {"ok": False, "auth": "none", "error": str(e)[:160], "devices": [], "clients": [], "discover": []}
+        try:
+            found = discover_f.result()
+        except Exception:
+            found = []
     by_id: dict[str, dict] = {}
     for row in machines + lan + proxies:
         by_id[str(row.get("id") or "")] = row
@@ -259,6 +265,7 @@ def run_probe(*, write_stdout: bool = True) -> dict:
         "quiet_proxies": quiet_proxies,
         "lan_meta": meta,
         "unifi": unifi,
+        "discover": merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist)),
     }
     ts = payload["as_of"]
     for row in machines:

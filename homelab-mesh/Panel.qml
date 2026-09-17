@@ -48,6 +48,7 @@ Panel {
   property var quietProxies: []
   property var lanMeta: ({})
   property var unifi: ({})
+  property var discover: []
   property bool showLan: false
   property bool showProxies: false
   property string actionStatus: ""
@@ -214,13 +215,11 @@ Panel {
     var meta = root.lanMeta || {}
     if (meta.dns_ms != null) bits.push("dns " + Math.round(Number(meta.dns_ms)) + "ms")
     if (meta.neighbors != null) bits.push(meta.neighbors + " neigh")
-    if (meta.unknown) bits.push(meta.unknown + " new")
+    if (root.discover.length) bits.push(root.discover.length + " new")
     var u = root.unifi || {}
     if (u.model) bits.push(u.model)
     var nCli = (u.clients instanceof Array) ? u.clients.length : 0
     if (nCli) bits.push(nCli + " unifi")
-    var nNew = (u.discover instanceof Array) ? u.discover.length : 0
-    if (nNew) bits.push(nNew + " unifi-new")
     return bits.join(" · ")
   }
 
@@ -439,6 +438,7 @@ Panel {
     root.quietProxies = data.quiet_proxies instanceof Array ? data.quiet_proxies : []
     root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
     root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
+    root.discover = data.discover instanceof Array ? data.discover : []
     root.error = ""
     root.loading = false
     root.rebuildMapEdges()
@@ -832,6 +832,31 @@ Panel {
     writeNodes(next)
   }
 
+  function discoveredNode(c) {
+    if (!c) return null
+    var label = String(c.label || c.host || c.ip || "").trim()
+    if (!label) return null
+    var node = { type: String(c.type || "") === "machine" ? "machine" : "host", label: label, ip: c.ip ? String(c.ip) : null }
+    if (c.host) node.dns = String(c.host) + ".local"
+    if (!node.dns && !node.ip) return null
+    var id = root.slugify(label)
+    if (root.invNodeById(id)) id = id + "-" + String(c.ip || c.mac || "").split(/[.:]/).pop()
+    node.id = id
+    return node
+  }
+
+  function addDiscovered(c) {
+    var node = root.discoveredNode(c)
+    if (!node) {
+      root.inventoryError = "Nothing to add"
+      return
+    }
+    var next = root.nodes.slice()
+    next.push(node)
+    if (!root.writeNodes(next)) return
+    root.discover = root.discover.filter(function(x) { return !(x.ip === c.ip && x.mac === c.mac && x.label === c.label) })
+  }
+
   function writeNodes(nextNodes) {
     if (!root.inventoryReady || root.inventoryLoading) {
       root.inventoryError = "Inventory not loaded"
@@ -1035,6 +1060,7 @@ Panel {
 
   component SetupRow: Item {
     property var node: ({})
+    property string trailing: ""
     signal activated()
 
     width: parent ? parent.width : 0
@@ -1078,6 +1104,15 @@ Panel {
         elide: Text.ElideRight
         horizontalAlignment: Text.AlignRight
         Layout.preferredWidth: Style.space(140)
+        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+      }
+      Text {
+        visible: trailing !== ""
+        text: trailing
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
     }
@@ -1324,12 +1359,15 @@ Panel {
     tooltipText: "Lanarchy"
     active: root.opened
     iconComponent: Component {
-      LanarchyIcon {
-        anchors.fill: parent
-        color: button.foreground
-        alert: root.urgent
-        alarmed: root.glanceDownCount > 0
-        active: root.opened || root.glanceDownCount > 0
+      Item {
+        LanarchyIcon {
+          anchors.centerIn: parent
+          iconSize: Style.space(14)
+          color: button.foreground
+          alert: root.urgent
+          alarmed: root.glanceDownCount > 0
+          active: root.opened || root.glanceDownCount > 0
+        }
       }
     }
     onPressed: function(buttonCode) {
@@ -1367,6 +1405,7 @@ Panel {
         if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
         if (k === "n") { root.showLan = !root.showLan; root.recalcMapLayout() }
         if (k === "p") root.showProxies = !root.showProxies
+        if (k === "s") root.goSetup()
       }
       onMoveRequested: function(dx, dy) {
         if (root.view === "glance" && root.glanceTab === "map") root.moveMapSelection(dx, dy)
@@ -1823,7 +1862,7 @@ Panel {
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
                 ? "click LAN cluster for leftovers · arrows select · Enter notify · m list"
-                : "LAN / PROXIES toggle leftovers · m map · r refresh"
+                : "LAN / PROXIES toggle leftovers · m map · r refresh · s setup"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -1856,6 +1895,27 @@ Panel {
                 width: parent.width
                 node: modelData
                 onActivated: root.goFormEdit(modelData)
+              }
+            }
+          }
+
+          BandCap {
+            visible: !root.inventoryLoading && root.discover.length > 0
+            title: "DISCOVERED · click to add"
+            width: parent.width
+          }
+          Column {
+            width: parent.width
+            spacing: 0
+            visible: !root.inventoryLoading && root.discover.length > 0
+            Repeater {
+              model: root.discover
+              SetupRow {
+                required property var modelData
+                width: parent.width
+                node: root.discoveredNode(modelData) || {}
+                trailing: "+ add"
+                onActivated: root.addDiscovered(modelData)
               }
             }
           }

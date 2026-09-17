@@ -61,6 +61,22 @@ def test_normalize_keeps_group() -> None:
     assert node_group_key(n) == "ha"
 
 
+def test_normalize_keeps_ssh_user_and_telemetry() -> None:
+    n = normalize_node(
+        {
+            "id": "aka",
+            "type": "machine",
+            "label": "aka",
+            "dns": "aka.lan",
+            "ip": None,
+            "sshUser": "red",
+            "telemetry": False,
+        }
+    )
+    assert n["sshUser"] == "red"
+    assert n["telemetry"] is False
+
+
 def test_leftover_skips_grouped() -> None:
     nodes = [
         {"id": "ha.lan", "type": "host", "label": "HA", "dns": "ha.lan", "group": "ha"},
@@ -76,5 +92,6 @@ if __name__ == "__main__":
     test_inventory_groups()
     test_attach_status_degraded()
     test_normalize_keeps_group()
+    test_normalize_keeps_ssh_user_and_telemetry()
     test_leftover_skips_grouped()
     print("ok")

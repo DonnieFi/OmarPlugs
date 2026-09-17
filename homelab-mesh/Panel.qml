@@ -111,6 +111,8 @@ Panel {
       var r = root.fmtRate(row.rates.rx_bps)
       if (r) bits.push("↓" + r)
     }
+    if (row.talkers && row.talkers.total > 0)
+      bits.push(row.talkers.total + " talk")
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) bits.push(up)
@@ -580,6 +582,14 @@ Panel {
         + (row.link.grade === "degraded" ? " (slow port)" : ""))
     if (row.rates && row.rates.rx_bps != null)
       lines.push("↓" + root.fmtRate(row.rates.rx_bps) + "  ↑" + root.fmtRate(row.rates.tx_bps))
+    if (row.talkers && row.talkers.total != null) {
+      var talk = String(row.talkers.total) + " talk"
+      var top = row.talkers.top || []
+      var t
+      for (t = 0; t < top.length && t < 4; t++)
+        talk += "  " + String(top[t].host || "") + "×" + String(top[t].count || 0)
+      lines.push(talk)
+    }
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) lines.push(up)
@@ -1419,6 +1429,23 @@ Panel {
     return n
   }
 
+  readonly property int glanceDegradedCount: {
+    var n = 0
+    var i
+    for (i = 0; i < root.machines.length; i++)
+      if (root.displayStatus(root.machines[i]) === "degraded") n++
+    for (i = 0; i < root.groups.length; i++)
+      if (String(root.groups[i].status) === "degraded") n++
+    return n
+  }
+
+  readonly property color barHealthColor: {
+    if (root.glanceDownCount > 0) return root.urgent
+    if (root.glanceDegradedCount > 0) return "#d4a017"
+    if (!root.asOf || root.snapshotStale()) return root.inkDim
+    return "#9ece6a"
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -1426,15 +1453,16 @@ Panel {
     text: ""
     tooltipText: "Lanarchy"
     active: root.opened
+    useActiveColor: false
     iconComponent: Component {
       Item {
         LanarchyIcon {
           anchors.centerIn: parent
           iconSize: Style.space(14)
-          color: button.foreground
+          color: root.barHealthColor
           alert: root.urgent
           alarmed: root.glanceDownCount > 0
-          active: root.opened || root.glanceDownCount > 0
+          active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
         }
       }
     }

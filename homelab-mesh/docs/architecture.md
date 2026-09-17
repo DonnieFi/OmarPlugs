@@ -158,7 +158,7 @@ Edge pulse uses `rx_bps` when present, else endpoint RTT.
 
 ## Telemetry (5oy.10)
 
-No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`). A machine-row Speedtest runs `probe.py speedtest --id <machine>`. That command measures curl throughput from `settings.speedtestUrl` or `https://files.lan/`, then tries iperf3 via SSH only if that binary is already present. iperf3 is not a dependency.
+No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`). A machine-row Speedtest runs `probe.py speedtest --id <machine>`. That command measures curl throughput from `settings.speedtestUrl` or `https://files.lan/`, then tries iperf3 via SSH only if that binary is already present. iperf3 is not a dependency. `ss -tunH` socket counts ride the same BatchMode hop. Missing `ss` or SSH omits `talkers` on the machine row.
 
 Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash).
 

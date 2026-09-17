@@ -1429,6 +1429,23 @@ Panel {
     return n
   }
 
+  readonly property int glanceDegradedCount: {
+    var n = 0
+    var i
+    for (i = 0; i < root.machines.length; i++)
+      if (root.displayStatus(root.machines[i]) === "degraded") n++
+    for (i = 0; i < root.groups.length; i++)
+      if (String(root.groups[i].status) === "degraded") n++
+    return n
+  }
+
+  readonly property color barHealthColor: {
+    if (root.glanceDownCount > 0) return root.urgent
+    if (root.glanceDegradedCount > 0) return "#d4a017"
+    if (!root.asOf || root.snapshotStale()) return root.inkDim
+    return "#9ece6a"
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -1436,15 +1453,16 @@ Panel {
     text: ""
     tooltipText: "Lanarchy"
     active: root.opened
+    useActiveColor: false
     iconComponent: Component {
       Item {
         LanarchyIcon {
           anchors.centerIn: parent
           iconSize: Style.space(14)
-          color: button.foreground
+          color: root.barHealthColor
           alert: root.urgent
           alarmed: root.glanceDownCount > 0
-          active: root.opened || root.glanceDownCount > 0
+          active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
         }
       }
     }

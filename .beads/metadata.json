@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "OmarPlugs",
-  "project_id": "91a019c6-fa43-4465-8333-0963b5b7bf91"
-}

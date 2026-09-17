@@ -1,61 +1,39 @@
+# Dotfiles / agent tooling — machine-local; never ship
+.*
+!.gitignore
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 *.egg-info/
-.venv/
 venv/
 
 # OS
-.DS_Store
 Thumbs.db
 
 # Secrets and credentials (never commit)
-.env
-.env.*
-!.env.example
 *.pem
 *.key
 *.p12
 sand-secrets.json
 
-# Local reference clones (Pulse, Omastorm, etc.)
-.refs/
-
-# Beads / Dolt — runtime DB and machine-local state (see also .beads/.gitignore)
-.beads/embeddeddolt/
-.beads/backup/
-.beads/dolt/
-.beads/proxieddb/
-.beads/**/*.lock
-.beads-credential-key
-.dolt/
+# Beads / Dolt leftovers if not caught by .*
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-
-# Cursor — commit .cursor/rules/ (bd setup); ignore machine-local IDE state
-.cursor/projects/
-.cursor/terminals/
-.cursor/**/*.log
-.cursor/**/mcp-auth.json
 
 # Homelab mesh — repo ships default inventory.json; local overrides stay untracked
 homelab-mesh/inventory.local.json
 homelab-mesh/inventory.json.bak
 homelab-mesh/*.log
 homelab-mesh/unifi-secrets.json
+homelab-mesh/snapshot.json
+homelab-mesh/history.json*
+homelab-mesh/notify-state.json
 
 # Scratch
 *.tmp
 *.swp
 *~
-homelab-mesh/.probe.lock
-homelab-mesh/.daemon.lock
-homelab-mesh/snapshot.json
-homelab-mesh/history.json*
-homelab-mesh/notify-state.json

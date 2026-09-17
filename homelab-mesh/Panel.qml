@@ -449,6 +449,7 @@ Panel {
   }
 
   function refresh() {
+    root.loading = true
     root.ensureDaemon()
     snapshotView.reload()
   }
@@ -595,9 +596,28 @@ Panel {
     }
   }
 
+  function asOfAgeSec() {
+    if (!root.asOf) return -1
+    var t = Date.parse(String(root.asOf))
+    if (!isFinite(t)) return -1
+    return Math.max(0, (Date.now() - t) / 1000)
+  }
+
+  function snapshotStale() {
+    var age = root.asOfAgeSec()
+    if (age < 0) return true
+    return age > (root.refreshIntervalSec * 2 + 5)
+  }
+
   readonly property string glanceStatusLine: {
     if (root.loading) return "PROBING"
     if (root.error) return "ERROR"
+    if (!root.asOf) return "NO DATA"
+    if (root.snapshotStale()) return "STALE"
+    var total = root.machines.length + root.groups.length
+    if (root.showLan) total += root.quietLan.length
+    if (root.showProxies) total += root.quietProxies.length
+    if (total === 0) return "NO DATA"
     var down = 0
     var bands = [root.machines, root.groups]
     if (root.showLan) bands.push(root.quietLan)
@@ -614,7 +634,9 @@ Panel {
 
   readonly property color glanceStatusTint: {
     if (root.error) return root.urgent
-    if (glanceStatusLine.indexOf("DOWN") >= 0) return root.urgent
+    if (glanceStatusLine.indexOf("DOWN") >= 0 || glanceStatusLine === "STALE" || glanceStatusLine === "ERROR")
+      return root.urgent
+    if (glanceStatusLine === "PROBING" || glanceStatusLine === "NO DATA") return root.inkDim
     return root.ink
   }
 
@@ -819,7 +841,6 @@ Panel {
     root.nodes = nextNodes
     root.inventoryError = ""
     var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
-    // Write via temp file: JSON has no single-quotes so bash single-quoting is safe.
     invWriteProc.command = [
       "bash", "-c",
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
@@ -832,6 +853,7 @@ Panel {
     if (opened) {
       root.view = "glance"
       root.mapSelectedId = ""
+      root.loading = true
       root.ensureDaemon()
       loadInventory()
       refresh()
@@ -857,6 +879,20 @@ Panel {
     id: daemonProc
     stdout: StdioCollector { waitForEnd: false }
     stderr: StdioCollector { waitForEnd: false }
+    onExited: function(exitCode) {
+      if (!root.opened) return
+      restartDaemon.restart()
+    }
+  }
+
+  Timer {
+    id: restartDaemon
+    interval: 750
+    repeat: false
+    onTriggered: {
+      if (!root.opened) return
+      root.ensureDaemon()
+    }
   }
 
   Process {

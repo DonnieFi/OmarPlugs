@@ -179,7 +179,9 @@ def attach_status(dash: dict, by_id: dict[str, dict]) -> list[dict]:
             members.append(member)
         if down and not up and down == len(members):
             status = "down"
-        elif down or (up and up < len(members)):
+        elif down:
+            # Yellow only when something is actually down (mixed or partial).
+            # up + unknown must not paint the map yellow.
             status = "degraded"
         elif up:
             status = "up"

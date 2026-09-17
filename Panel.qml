@@ -59,6 +59,7 @@ Panel {
   property bool showLan: false
   property bool showProxies: false
   property bool mapQuietUp: false
+  property bool mapHiddenDrawer: false
   property var invSettings: ({})
   property string actionStatus: ""
   property bool findHostsBusy: false
@@ -483,6 +484,37 @@ Panel {
     root.recalcMapLayout()
   }
 
+  function mapHiddenEntries() {
+    var out = []
+    var seen = ({})
+    var i, g, m, id, label, kind
+    for (i = 0; i < root.groups.length; i++) {
+      g = root.groups[i]
+      id = String(g.id || "")
+      if (!id || seen[id] || !root.mapHiddenForId(id)) continue
+      seen[id] = true
+      out.push({
+        id: id,
+        label: String(g.label || id),
+        kind: String(g.zone || "") === "external" ? "external" : "service",
+        status: root.displayStatus(g)
+      })
+    }
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      id = String(m.id || "")
+      if (!id || seen[id] || !root.mapHiddenForId(id)) continue
+      seen[id] = true
+      out.push({
+        id: id,
+        label: String(m.label || id),
+        kind: "machine",
+        status: root.displayStatus(m)
+      })
+    }
+    return out
+  }
+
   function unhideAllMap() {
     var next = []
     var i, node
@@ -492,6 +524,7 @@ Panel {
       next.push(node)
     }
     root.writeNodes(next)
+    root.mapHiddenDrawer = false
     root.rebuildMapEdges()
     root.recalcMapLayout()
   }
@@ -1637,25 +1670,31 @@ Panel {
     height: root.mapCardH
     radius: Style.space(14)
     color: {
-      if (cardMa.containsMouse) return Qt.alpha(root.ink, 0.10)
-      if (hot) return Qt.alpha(root.urgent, 0.10)
-      if (status === "up") return Qt.alpha(root.themeGreen, 0.10)
-      if (status === "degraded") return Qt.alpha(root.themeYellow, 0.10)
-      if (status === "down") return Qt.alpha(root.statusColor("down"), 0.12)
+      // Fill = soft status wash inside the card
+      if (cardMa.containsMouse) return Qt.alpha(root.statusColor(status), 0.22)
+      if (hot) return Qt.alpha(root.urgent, 0.20)
+      if (status === "up") return Qt.alpha(root.themeGreen, 0.20)
+      if (status === "degraded") return Qt.alpha(root.themeYellow, 0.22)
+      if (status === "down") return Qt.alpha(root.statusColor("down"), 0.24)
+      if (kind === "router" || kind === "hub") return Qt.alpha(Color.accent, 0.14)
+      if (kind === "external") return Qt.alpha(Color.accent, 0.10)
       return root.card
     }
-    border.width: selected || status === "down" || kind === "hub" || kind === "router" ? 2 : 1
+    border.width: selected || status === "down" || kind === "hub" || kind === "router" ? 2 : 2
     border.color: {
+      // Border = hard rim — same hue, much more opaque so status reads at a glance
       if ((kind === "hub" || kind === "router") && status !== "down")
-        return Qt.alpha(Color.accent, selected ? 1.0 : 0.85)
+        return Qt.alpha(Color.accent, selected ? 1.0 : 0.92)
       if (selected)
         return Qt.alpha(root.statusColor(status), 1.0)
       if (status === "down")
-        return Qt.alpha(root.statusColor(status), 0.95)
+        return Qt.alpha(root.statusColor(status), 1.0)
       if (status === "up")
-        return Qt.alpha(root.themeGreen, 0.70)
+        return Qt.alpha(root.themeGreen, 0.92)
       if (status === "degraded")
-        return Qt.alpha(root.themeYellow, 0.70)
+        return Qt.alpha(root.themeYellow, 0.92)
+      if (kind === "external")
+        return Qt.alpha(Color.accent, 0.75)
       return root.borderIdle
     }
 
@@ -2066,10 +2105,10 @@ Panel {
               onTapped: root.setMapQuietUp(!root.mapQuietUp)
             }
             SegBtn {
-              visible: root.glanceTab === "map" && root.mapHiddenCount() > 0
-              label: "HIDDEN " + root.mapHiddenCount()
-              active: false
-              onTapped: root.unhideAllMap()
+              visible: root.glanceTab === "map"
+              label: "HIDDEN" + (root.mapHiddenCount() ? " " + root.mapHiddenCount() : "")
+              active: root.mapHiddenDrawer
+              onTapped: root.mapHiddenDrawer = !root.mapHiddenDrawer
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -2215,25 +2254,27 @@ Panel {
               }
             }
 
-            Text {
+              Text {
               visible: root.mapHasExternal
               x: Style.space(10)
               y: Style.space(6)
               text: "INTERNAL"
-              color: root.inkDim
+              color: root.themeGreen
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.letterSpacing: 1.2
+              font.bold: true
             }
             Text {
               visible: root.mapHasExternal
               x: root.mapSplitX + root.mapBarWidth + Style.space(10)
               y: Style.space(6)
               text: "EXTERNAL"
-              color: root.inkDim
+              color: Color.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.letterSpacing: 1.2
+              font.bold: true
             }
 
             Timer {
@@ -2320,6 +2361,103 @@ Panel {
                   }
                 }
                 onNotifyClicked: root.toggleNotifyForNodeId(nodeId)
+              }
+            }
+          }
+
+          // Hidden-items drawer — restore one-by-one or clear all
+          Rectangle {
+            width: parent.width
+            visible: root.glanceTab === "map" && root.mapHiddenDrawer
+            radius: Style.space(10)
+            color: Qt.alpha(Color.accent, 0.08)
+            border.width: 1
+            border.color: Qt.alpha(Color.accent, 0.40)
+            implicitHeight: hiddenDrawerCol.implicitHeight + Style.space(16)
+            Column {
+              id: hiddenDrawerCol
+              anchors.fill: parent
+              anchors.margins: Style.space(10)
+              spacing: Style.space(8)
+              RowLayout {
+                width: parent.width
+                spacing: Style.space(8)
+                Text {
+                  text: "Hidden on map"
+                  color: root.ink
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  Layout.fillWidth: true
+                  Layout.alignment: Qt.AlignVCenter
+                }
+                SegBtn {
+                  label: "Show all"
+                  active: false
+                  onTapped: root.unhideAllMap()
+                }
+                SegBtn {
+                  label: "Close"
+                  active: false
+                  onTapped: root.mapHiddenDrawer = false
+                }
+              }
+              Text {
+                visible: root.mapHiddenEntries().length === 0
+                width: parent.width
+                text: "Nothing hidden — Hide on map from a card’s detail strip (or press h)."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
+              Repeater {
+                model: root.mapHiddenEntries()
+                delegate: Rectangle {
+                  required property var modelData
+                  width: hiddenDrawerCol.width
+                  height: Style.space(32)
+                  radius: Style.space(8)
+                  color: Qt.alpha(root.statusColor(String(modelData.status || "unknown")), 0.14)
+                  border.width: 1
+                  border.color: Qt.alpha(root.statusColor(String(modelData.status || "unknown")), 0.55)
+                  RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(10)
+                    anchors.rightMargin: Style.space(8)
+                    spacing: Style.space(8)
+                    Text {
+                      text: root.statusGlyph(String(modelData.status || "unknown"))
+                      color: root.statusColor(String(modelData.status || "unknown"))
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                    }
+                    Text {
+                      text: String(modelData.label || modelData.id || "")
+                      color: root.ink
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                      elide: Text.ElideRight
+                      Layout.fillWidth: true
+                    }
+                    Text {
+                      text: String(modelData.kind || "").toUpperCase()
+                      color: root.inkDim
+                      font.family: root.fontFamily
+                      font.pixelSize: 9
+                      font.letterSpacing: 0.8
+                    }
+                    SegBtn {
+                      label: "Show"
+                      active: false
+                      onTapped: {
+                        root.toggleMapHidden(String(modelData.id || ""))
+                        if (root.mapHiddenCount() === 0) root.mapHiddenDrawer = false
+                      }
+                    }
+                  }
+                }
               }
             }
           }

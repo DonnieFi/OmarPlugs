@@ -3,10 +3,17 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.4 — 2026-09-17
+
+- **HIDDEN** drawer: restore cards one-by-one or Show all (replaces unhide-all chip)
+- Stronger map card fill vs border (status wash vs hard rim)
+- Zone labels coloured (INTERNAL green / EXTERNAL accent)
+- Degraded (yellow) only when a member is actually **down** — up+unknown stays green
+
 ## 0.3.3 — 2026-09-17
 
 - Map proportions: ~2⁄3 INTERNAL · router bar · ~1⁄3 EXTERNAL
-- Per-service **Hide on map** (`mapHidden`, still probed); **HIDDEN n** unhides all
+- Per-service **Hide on map** (`mapHidden`, still probed)
 - **ISSUES** quiet mode: auto-hide healthy LAN services on the map while tracking continues (`q`)
 
 ## 0.3.2 — 2026-09-17

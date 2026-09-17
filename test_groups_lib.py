@@ -50,7 +50,7 @@ def test_attach_status_degraded() -> None:
         {"services": [{**dash["services"][0], "member_ids": ["a", "b"], "roles": ["host", "443"]}]},
         {"a": {"status": "up"}, "b": {"status": "unknown"}},
     )
-    assert partial[0]["status"] == "degraded"
+    assert partial[0]["status"] == "up"
 
 
 def test_attach_status_all_unknown_not_down() -> None:
@@ -101,11 +101,40 @@ def test_leftover_skips_grouped() -> None:
     assert proxies == []
 
 
+def test_normalize_keeps_map_hidden_and_zone() -> None:
+    n = normalize_node(
+        {
+            "id": "xmcp",
+            "type": "proxy",
+            "label": "xMCP",
+            "check": "http",
+            "url": "https://xmcp-write.dfiander.workers.dev/mcp",
+            "zone": "external",
+            "httpReachable": True,
+            "mapHidden": True,
+        }
+    )
+    assert n["zone"] == "external"
+    assert n["httpReachable"] is True
+    assert n["mapHidden"] is True
+    clear = normalize_node(
+        {
+            "id": "xmcp",
+            "type": "proxy",
+            "label": "xMCP",
+            "check": "http",
+            "url": "https://example.test/",
+        }
+    )
+    assert "mapHidden" not in clear
+
+
 if __name__ == "__main__":
     test_inventory_groups()
     test_attach_status_degraded()
     test_attach_status_all_unknown_not_down()
     test_normalize_keeps_group()
     test_normalize_keeps_ssh_user_and_telemetry()
+    test_normalize_keeps_map_hidden_and_zone()
     test_leftover_skips_grouped()
     print("ok")

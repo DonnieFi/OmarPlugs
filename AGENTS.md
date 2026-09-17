@@ -25,6 +25,7 @@ Runtime install path (usually a symlink to this tree):
 ### Tests
 
 ```bash
+./smoke.sh                 # validate + unit + probe + discover + refuse-empty
 for t in test_*.py; do python3 "$t"; done
 omarchy plugin validate .
 ```

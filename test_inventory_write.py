@@ -74,6 +74,7 @@ def test_write_keeps_group_and_map_extras() -> None:
                     "label": "Frigate",
                     "group": "cameras",
                     "hidden": True,
+                    "mapHidden": True,
                     "mapOrder": 3,
                     "mapBand": "host",
                     "dns": "frigate.lan",
@@ -86,6 +87,7 @@ def test_write_keeps_group_and_map_extras() -> None:
         node = json.loads(inv.read_text(encoding="utf-8"))["nodes"][0]
         assert node["group"] == "cameras"
         assert node["hidden"] is True
+        assert node["mapHidden"] is True
         assert node["mapOrder"] == 3
         assert node["mapBand"] == "host"
 

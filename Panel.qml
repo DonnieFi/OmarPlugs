@@ -58,6 +58,8 @@ Panel {
   property var discover: []
   property bool showLan: false
   property bool showProxies: false
+  property bool mapQuietUp: false
+  property var invSettings: ({})
   property string actionStatus: ""
   property bool findHostsBusy: false
   property string findHostsHint: ""
@@ -305,18 +307,22 @@ Panel {
     var hubRow = root.hubGroup()
     var hub = router ? String(router.id) : (hubRow ? String(hubRow.id) : (root.machines.length ? String(root.machines[0].id || "") : ""))
     var edges = []
-    var i, mid
+    var i, mid, gid
     for (i = 0; i < root.machines.length; i++) {
       mid = String(root.machines[i].id || "")
       if (!mid || mid === hub) continue
+      if (!root.mapRowVisible(root.machines[i], "machine")) continue
       edges.push({ from: mid, to: hub, kind: "lan" })
     }
     for (i = 0; i < root.groups.length; i++) {
-      if (String(root.groups[i].id) === hub) continue
+      gid = String(root.groups[i].id || "")
+      if (gid === hub) continue
+      if (!root.mapRowVisible(root.groups[i], String(root.groups[i].zone || "") === "external" ? "external" : "service"))
+        continue
       var kind = String(root.groups[i].zone || "") === "external" ? "wan" : "service"
-      edges.push({ from: hub, to: String(root.groups[i].id), kind: kind })
+      edges.push({ from: hub, to: gid, kind: kind })
     }
-    if (root.quietLan.length)
+    if (root.quietLan.length && !root.mapQuietUp)
       edges.push({ from: hub, to: "__lan__", kind: "lan" })
     root.mapEdges = edges
   }
@@ -422,13 +428,116 @@ Panel {
     return bits.join("  ") || "router"
   }
 
-  function externalGroups() {
-    var out = []
-    var i
-    for (i = 0; i < root.groups.length; i++) {
-      if (String(root.groups[i].zone || "") === "external") out.push(root.groups[i])
+  function mapHiddenForId(sid) {
+    var id = String(sid || "")
+    if (!id || id === "__lan__") return false
+    var ids = root.groupMemberIds(id)
+    if (!ids.length) ids = [id]
+    var i, inv, seen = false
+    for (i = 0; i < ids.length; i++) {
+      inv = root.invNodeById(ids[i])
+      if (!inv) continue
+      seen = true
+      if (inv.mapHidden !== true) return false
     }
-    return out
+    return seen
+  }
+
+  function mapHiddenCount() {
+    var n = 0
+    var i, g, m
+    for (i = 0; i < root.groups.length; i++) {
+      g = root.groups[i]
+      if (root.mapHiddenForId(g.id)) n++
+    }
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      if (root.mapHiddenForId(m.id)) n++
+    }
+    return n
+  }
+
+  function toggleMapHidden(sid) {
+    var id = String(sid || "")
+    if (!id || id === "__lan__") return
+    var ids = root.groupMemberIds(id)
+    if (!ids.length) ids = [id]
+    var hide = !root.mapHiddenForId(id)
+    var next = []
+    var i, node, nid, hit
+    for (i = 0; i < root.nodes.length; i++) {
+      node = JSON.parse(JSON.stringify(root.nodes[i]))
+      nid = String(node.id || "")
+      hit = false
+      for (var j = 0; j < ids.length; j++) {
+        if (ids[j] === nid) { hit = true; break }
+      }
+      if (hit) {
+        if (hide) node.mapHidden = true
+        else delete node.mapHidden
+      }
+      next.push(node)
+    }
+    root.writeNodes(next)
+    root.rebuildMapEdges()
+    root.recalcMapLayout()
+  }
+
+  function unhideAllMap() {
+    var next = []
+    var i, node
+    for (i = 0; i < root.nodes.length; i++) {
+      node = JSON.parse(JSON.stringify(root.nodes[i]))
+      delete node.mapHidden
+      next.push(node)
+    }
+    root.writeNodes(next)
+    root.rebuildMapEdges()
+    root.recalcMapLayout()
+  }
+
+  function setMapQuietUp(on) {
+    root.mapQuietUp = !!on
+    var settings = {}
+    var k
+    for (k in root.invSettings) settings[k] = root.invSettings[k]
+    if (on) settings.mapQuietUp = true
+    else delete settings.mapQuietUp
+    root.invSettings = settings
+    root.writeInventorySettings(settings)
+    root.rebuildMapEdges()
+    root.recalcMapLayout()
+  }
+
+  function writeInventorySettings(settings) {
+    if (!root.inventoryReady || root.inventoryLoading) return false
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return false
+    var payload = { schemaVersion: 2, nodes: root.nodes }
+    if (settings && typeof settings === "object") {
+      var keys = Object.keys(settings)
+      if (keys.length) payload.settings = settings
+    }
+    var text = JSON.stringify(payload)
+    invWriteProc.command = [
+      "bash", "-c",
+      "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + text.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
+    ]
+    invWriteProc.running = true
+    return true
+  }
+
+  // Map visibility: permanent mapHidden, plus quiet mode that drops healthy services.
+  // Probes keep running either way — only the letterbox is filtered (NetBox-style declutter).
+  function mapRowVisible(row, kind) {
+    if (!row) return false
+    var id = String(row.id || "")
+    if (kind === "router" || kind === "hub") return true
+    if (root.mapHiddenForId(id)) return false
+    if (root.mapQuietUp && kind !== "external") {
+      var st = root.displayStatus(row)
+      if (st === "up" && (kind === "service" || kind === "lan")) return false
+    }
+    return true
   }
 
   function internalGroups(hub) {
@@ -438,6 +547,19 @@ Panel {
       g = root.groups[i]
       if (hub && String(g.id) === String(hub.id)) continue
       if (String(g.zone || "") === "external") continue
+      if (!root.mapRowVisible(g, "service")) continue
+      out.push(g)
+    }
+    return out
+  }
+
+  function externalGroups() {
+    var out = []
+    var i, g
+    for (i = 0; i < root.groups.length; i++) {
+      g = root.groups[i]
+      if (String(g.zone || "") !== "external") continue
+      if (root.mapHiddenForId(g.id)) continue
       out.push(g)
     }
     return out
@@ -450,6 +572,7 @@ Panel {
     for (i = 0; i < root.machines.length; i++) {
       m = root.machines[i]
       if (rid && String(m.id || "") === rid) continue
+      if (!root.mapRowVisible(m, "machine")) continue
       out.push(m)
     }
     return out
@@ -467,12 +590,13 @@ Panel {
     var hub = root.hubGroup()
     root.mapHasExternal = externals.length > 0
 
-    // INTERNAL | ROUTER BAR | EXTERNAL
+    // INTERNAL (~2/3) | ROUTER BAR | EXTERNAL (~1/3) — classic LAN-heavy letterbox
     var barW = root.mapHasExternal ? Style.space(140) : 0
+    var usable = Math.max(Style.space(400), w - barW)
     var leftW = root.mapHasExternal
-        ? Math.max(Style.space(280), Math.floor((w - barW) * 0.58))
+        ? Math.max(Style.space(300), Math.floor(usable * (2 / 3)))
         : w
-    var rightW = root.mapHasExternal ? Math.max(Style.space(120), w - leftW - barW) : 0
+    var rightW = root.mapHasExternal ? Math.max(Style.space(140), usable - leftW) : 0
     var barX = leftW
     root.mapSplitX = barX
     root.mapBarWidth = barW
@@ -523,7 +647,7 @@ Panel {
     var svcs = root.internalGroups(hub)
     colBand(svcs, "service", Style.space(250), "service", root.serviceMetric, root.serviceLights, 0, leftW)
 
-    if (root.quietLan.length) {
+    if (root.quietLan.length && root.mapRowVisible(root.lanClusterRow(), "lan")) {
       var cluster = root.lanClusterRow()
       var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
       place(cluster, "leftover", (leftW - clusterW) / 2, Style.space(360),
@@ -922,6 +1046,8 @@ Panel {
     }
     root.nodes = data.nodes
     root.mapEdges = data.edges instanceof Array ? data.edges : []
+    root.invSettings = data.settings && typeof data.settings === "object" ? data.settings : ({})
+    root.mapQuietUp = root.invSettings.mapQuietUp === true
     if (!root.asOf) {
       var seeded = []
       var i, n
@@ -1106,7 +1232,12 @@ Panel {
     }
     root.nodes = nextNodes
     root.inventoryError = ""
-    var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
+    var payloadObj = { schemaVersion: 2, nodes: nextNodes }
+    if (root.invSettings && typeof root.invSettings === "object") {
+      var keys = Object.keys(root.invSettings)
+      if (keys.length) payloadObj.settings = root.invSettings
+    }
+    var payload = JSON.stringify(payloadObj)
     invWriteProc.command = [
       "bash", "-c",
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
@@ -1791,6 +1922,8 @@ Panel {
         if (k === "r") root.refresh()
         if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
         if (k === "n") { root.showLan = !root.showLan; root.recalcMapLayout() }
+        if (k === "q") root.setMapQuietUp(!root.mapQuietUp)
+        if (k === "h" && root.mapSelectedId) root.toggleMapHidden(root.mapSelectedId)
         if (k === "p") root.showProxies = !root.showProxies
         if (k === "s") root.goSetup()
       }
@@ -1855,7 +1988,7 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "INTERNAL · router bar (live traffic) · EXTERNAL"
+                        ? "2⁄3 INTERNAL · router · 1⁄3 EXTERNAL · ISSUES hides healthy services"
                         : "Machines → Caddy → services · leftover LAN clustered")
                     : "Dash · colour lights · toggle the noise"
                 color: root.inkDim
@@ -1925,6 +2058,18 @@ Panel {
               label: "PROXIES" + (root.quietProxies.length ? " " + root.quietProxies.length : "")
               active: root.showProxies
               onTapped: root.showProxies = !root.showProxies
+            }
+            SegBtn {
+              visible: root.glanceTab === "map"
+              label: root.mapQuietUp ? "ISSUES" : "ALL"
+              active: root.mapQuietUp
+              onTapped: root.setMapQuietUp(!root.mapQuietUp)
+            }
+            SegBtn {
+              visible: root.glanceTab === "map" && root.mapHiddenCount() > 0
+              label: "HIDDEN " + root.mapHiddenCount()
+              active: false
+              onTapped: root.unhideAllMap()
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -2214,6 +2359,11 @@ Panel {
                   label: root.notifyEnabledForNodeId(root.mapSelectedId) ? "Notify on" : "Notify off"
                   active: root.notifyEnabledForNodeId(root.mapSelectedId)
                   onTapped: root.toggleNotifyForNodeId(root.mapSelectedId)
+                }
+                SegBtn {
+                  label: root.mapHiddenForId(root.mapSelectedId) ? "Show on map" : "Hide on map"
+                  active: root.mapHiddenForId(root.mapSelectedId)
+                  onTapped: root.toggleMapHidden(root.mapSelectedId)
                 }
                 SegBtn {
                   label: "Edit in Setup"

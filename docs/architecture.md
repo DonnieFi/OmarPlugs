@@ -50,8 +50,9 @@ Per-node optional fields:
 | `notify` | boolean | `true` | When `false`, no fail-streak alerts for this id |
 | `group` | string | derived from id/dns stem | Collapse host+proxy twins (`bernie`, `ha`) into one service |
 | `hidden` | boolean | `false` | Drop from leftover LAN even when the LAN toggle is on |
-| `mapBand` | string | derived from `type` | Override band key for letterbox layout (`machine`, `host`, `proxy`) |
+| `mapBand` | string | derived from `type` | Override band key for letterbox layout (`machine`, `host`, `proxy`, `router`) |
 | `mapOrder` | integer | list order | Stable sort within band |
+| `mapHidden` | boolean | `false` | Hide from the map (still probed; List unchanged). Toggle from the map detail strip |
 | `zone` | string | internal | Set `external` to place the service on the map's right-hand WAN rail |
 | `httpReachable` | boolean | `false` | HTTP proxy: any response code (incl. 401/404) counts as up — for workers without a public health path |
 

@@ -126,6 +126,8 @@ def normalize_node(raw: dict) -> dict:
         node["group"] = slugify(group)
     if raw.get("hidden") is True:
         node["hidden"] = True
+    if raw.get("mapHidden") is True:
+        node["mapHidden"] = True
 
     dns = _as_str(raw.get("dns")) or _as_str(raw.get("host"))
     ip = _as_str(raw.get("ip"))
@@ -176,6 +178,7 @@ _NORMALIZED_KEYS = frozenset(
         "httpReachable",
         "group",
         "hidden",
+        "mapHidden",
         "dns",
         "host",
         "ip",

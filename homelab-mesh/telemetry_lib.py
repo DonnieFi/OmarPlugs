@@ -173,6 +173,8 @@ def http_timing(url: str) -> dict[str, Any]:
 
 
 def tcp_timing(host: str, port: int) -> float | None:
+    if not host or not port:
+        return None
     t = time.perf_counter()
     try:
         with socket.create_connection((host, int(port)), timeout=HTTP_TIMEOUT_S):

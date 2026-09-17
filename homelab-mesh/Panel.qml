@@ -589,7 +589,10 @@ Panel {
       next.push(n)
     }
     root.mapSelectedId = id
-    root.writeNodes(next)
+    if (!root.writeNodes(next)) {
+      if (root.view === "glance")
+        root.actionStatus = root.inventoryError || "Save refused"
+    }
   }
 
   readonly property string glanceStatusLine: {
@@ -772,7 +775,9 @@ Panel {
   function saveForm() {
     var node = root.buildFormNode()
     if (!node) {
-      root.inventoryError = "Fill required fields"
+      root.inventoryError = root.formIsNew || root.invNodeById(root.formId)
+          ? "Fill required fields"
+          : "Node missing from inventory"
       return
     }
     var next = []
@@ -803,7 +808,6 @@ Panel {
   }
 
   function writeNodes(nextNodes) {
-    // Refuse wipe: Enter/ALERT before dump loads, or failed dump, leaves root.nodes=[].
     if (!root.inventoryReady || root.inventoryLoading) {
       root.inventoryError = "Inventory not loaded"
       return false

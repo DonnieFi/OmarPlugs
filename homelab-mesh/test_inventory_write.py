@@ -62,7 +62,36 @@ def test_write_keeps_one_node() -> None:
         assert [n["id"] for n in saved["nodes"]] == ["aka"]
 
 
+def test_write_keeps_group_and_map_extras() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        payload = {
+            "schemaVersion": 2,
+            "nodes": [
+                {
+                    "id": "frigate.lan",
+                    "type": "host",
+                    "label": "Frigate",
+                    "group": "cameras",
+                    "hidden": True,
+                    "mapOrder": 3,
+                    "mapBand": "host",
+                    "dns": "frigate.lan",
+                    "ip": None,
+                }
+            ],
+        }
+        proc = _write(inv, payload)
+        assert proc.returncode == 0, proc.stderr
+        node = json.loads(inv.read_text(encoding="utf-8"))["nodes"][0]
+        assert node["group"] == "cameras"
+        assert node["hidden"] is True
+        assert node["mapOrder"] == 3
+        assert node["mapBand"] == "host"
+
+
 if __name__ == "__main__":
     test_refuse_empty_write()
     test_write_keeps_one_node()
+    test_write_keeps_group_and_map_extras()
     print("ok")

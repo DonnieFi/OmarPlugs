@@ -116,6 +116,11 @@ def normalize_node(raw: dict) -> dict:
     band = _as_str(raw.get("mapBand"))
     if band:
         node["mapBand"] = band
+    zone = _as_str(raw.get("zone"))
+    if zone:
+        node["zone"] = zone.lower()
+    if raw.get("httpReachable") is True:
+        node["httpReachable"] = True
     group = _as_str(raw.get("group"))
     if group:
         node["group"] = slugify(group)
@@ -167,6 +172,8 @@ _NORMALIZED_KEYS = frozenset(
         "notify",
         "mapOrder",
         "mapBand",
+        "zone",
+        "httpReachable",
         "group",
         "hidden",
         "dns",

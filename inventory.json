@@ -33,8 +33,9 @@
       "id": "redultra",
       "type": "machine",
       "label": "redUltra",
-      "dns": null,
-      "ip": "192.168.1.1"
+      "mapBand": "router",
+      "ip": "192.168.1.1",
+      "role": "router"
     },
     {
       "id": "bernie.lan",
@@ -243,6 +244,36 @@
       "check": "tcp",
       "dns": "dockge.lan",
       "port": 443
+    },
+    {
+      "id": "omotenashi",
+      "type": "proxy",
+      "label": "Omotenashi",
+      "zone": "external",
+      "group": "omotenashi",
+      "check": "http",
+      "url": "https://omotenashi-dev.dfiander.workers.dev/"
+    },
+    {
+      "id": "xmcp",
+      "type": "proxy",
+      "label": "xMCP",
+      "zone": "external",
+      "httpReachable": true,
+      "group": "xmcp",
+      "check": "http",
+      "url": "https://xmcp-write.dfiander.workers.dev/mcp"
+    },
+    {
+      "id": "modal-smoke",
+      "type": "proxy",
+      "label": "Modal",
+      "notify": false,
+      "zone": "external",
+      "httpReachable": true,
+      "group": "modal",
+      "check": "http",
+      "url": "https://dfiander--openclaw-smoke.modal.run/"
     }
   ],
   "settings": {

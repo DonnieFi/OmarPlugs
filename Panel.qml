@@ -301,15 +301,20 @@ Panel {
   }
 
   function rebuildMapEdges() {
+    var router = root.routerMachine()
     var hubRow = root.hubGroup()
-    var hub = hubRow ? String(hubRow.id) : (root.machines.length ? String(root.machines[0].id || "") : "")
+    var hub = router ? String(router.id) : (hubRow ? String(hubRow.id) : (root.machines.length ? String(root.machines[0].id || "") : ""))
     var edges = []
-    var i
-    for (i = 0; i < root.machines.length; i++)
-      edges.push({ from: String(root.machines[i].id || ""), to: hub, kind: "hub" })
+    var i, mid
+    for (i = 0; i < root.machines.length; i++) {
+      mid = String(root.machines[i].id || "")
+      if (!mid || mid === hub) continue
+      edges.push({ from: mid, to: hub, kind: "lan" })
+    }
     for (i = 0; i < root.groups.length; i++) {
       if (String(root.groups[i].id) === hub) continue
-      edges.push({ from: hub, to: String(root.groups[i].id), kind: "service" })
+      var kind = String(root.groups[i].zone || "") === "external" ? "wan" : "service"
+      edges.push({ from: hub, to: String(root.groups[i].id), kind: kind })
     }
     if (root.quietLan.length)
       edges.push({ from: hub, to: "__lan__", kind: "lan" })
@@ -342,6 +347,9 @@ Panel {
 
   readonly property int mapLanCap: 12
   readonly property int mapCardH: Style.space(94)
+  property real mapSplitX: 0
+  property real mapBarWidth: 0
+  property bool mapHasExternal: false
 
   function rttHot(row) {
     if (!row || String(row.status) !== "up") return false
@@ -355,8 +363,11 @@ Panel {
       var n = Number(row.rates.rx_bps)
       return isFinite(n) ? n : 0
     }
-    var bps = Math.max(rx(rowA), rx(rowB))
-    if (bps > 500) return Math.max(0.4, Math.min(2.8, 120000 / bps))
+    // Prefer live LAN aggregate through the router when either end is the router.
+    var tot = root.lanTrafficTotals()
+    var agg = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
+    var bps = Math.max(rx(rowA), rx(rowB), agg * 0.35)
+    if (bps > 500) return Math.max(0.35, Math.min(2.8, 140000 / bps))
     var ms = 0
     if (rowA && rowA.rtt_ms != null) ms = Math.max(ms, Number(rowA.rtt_ms))
     if (rowB && rowB.rtt_ms != null) ms = Math.max(ms, Number(rowB.rtt_ms))
@@ -364,12 +375,108 @@ Panel {
     return Math.max(0.6, Math.min(3.5, ms / 40))
   }
 
+  function routerMachine() {
+    var i, m, id, label
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      id = String(m.id || "").toLowerCase()
+      label = String(m.label || "").toLowerCase()
+      if (id === "redultra" || label.indexOf("redultra") >= 0) return m
+      if (String(m.mapBand || "") === "router" || String(m.role || "") === "router") return m
+    }
+    var u = root.unifi || {}
+    var tip = String(u.url || "")
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      if (m.ip && tip.indexOf(String(m.ip)) >= 0) return m
+    }
+    return null
+  }
+
+  function lanTrafficTotals() {
+    var rx = 0
+    var tx = 0
+    var i, m
+    var router = root.routerMachine()
+    var routerId = router ? String(router.id || "") : ""
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      if (String(m.id || "") === routerId) continue
+      if (!m.rates) continue
+      if (m.rates.rx_bps != null) rx += Number(m.rates.rx_bps) || 0
+      if (m.rates.tx_bps != null) tx += Number(m.rates.tx_bps) || 0
+    }
+    return { rx_bps: rx, tx_bps: tx }
+  }
+
+  function routerMetric(row) {
+    var bits = []
+    var tot = root.lanTrafficTotals()
+    var down = root.fmtRate(tot.rx_bps)
+    var up = root.fmtRate(tot.tx_bps)
+    if (down || up) bits.push("↓" + (down || "0") + " ↑" + (up || "0"))
+    if (row) bits.push(root.rttText(row))
+    var u = root.unifi || {}
+    var nCli = (u.clients instanceof Array) ? u.clients.length : 0
+    if (nCli) bits.push(nCli + " cli")
+    return bits.join("  ") || "router"
+  }
+
+  function externalGroups() {
+    var out = []
+    var i
+    for (i = 0; i < root.groups.length; i++) {
+      if (String(root.groups[i].zone || "") === "external") out.push(root.groups[i])
+    }
+    return out
+  }
+
+  function internalGroups(hub) {
+    var out = []
+    var i, g
+    for (i = 0; i < root.groups.length; i++) {
+      g = root.groups[i]
+      if (hub && String(g.id) === String(hub.id)) continue
+      if (String(g.zone || "") === "external") continue
+      out.push(g)
+    }
+    return out
+  }
+
+  function internalMachines(router) {
+    var out = []
+    var rid = router ? String(router.id || "") : ""
+    var i, m
+    for (i = 0; i < root.machines.length; i++) {
+      m = root.machines[i]
+      if (rid && String(m.id || "") === rid) continue
+      out.push(m)
+    }
+    return out
+  }
+
   function recalcMapLayout() {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
+    var h = mapArea.height
     var layout = []
     var cardW = Style.space(108)
     var cardH = root.mapCardH
+    var externals = root.externalGroups()
+    var router = root.routerMachine()
+    var hub = root.hubGroup()
+    root.mapHasExternal = externals.length > 0
+
+    // INTERNAL | ROUTER BAR | EXTERNAL
+    var barW = root.mapHasExternal ? Style.space(140) : 0
+    var leftW = root.mapHasExternal
+        ? Math.max(Style.space(280), Math.floor((w - barW) * 0.58))
+        : w
+    var rightW = root.mapHasExternal ? Math.max(Style.space(120), w - leftW - barW) : 0
+    var barX = leftW
+    root.mapSplitX = barX
+    root.mapBarWidth = barW
+
     function place(row, subline, x, y, wCard, hCard, kind, metric, lights) {
       layout.push({
         id: String(row.id || ""),
@@ -377,6 +484,7 @@ Panel {
         subline: subline,
         status: root.displayStatus(row),
         rtt_ms: row.rtt_ms,
+        rates: row.rates || null,
         x: x,
         y: y,
         w: wCard,
@@ -384,41 +492,69 @@ Panel {
         kind: kind || subline,
         metric: metric || "",
         lights: lights || [],
-        sparklineId: root.sparklineIdFor(row)
+        sparklineId: root.sparklineIdFor(row),
+        zone: String(row.zone || "")
       })
     }
-    function rowBand(rows, subline, y, kind, metricFn, lightsFn) {
+    function colBand(rows, subline, y, kind, metricFn, lightsFn, colX, colW) {
       var n = rows.length
       if (n <= 0) return
-      var gap = w / (n + 1)
-      var cw = Math.max(Style.space(96), Math.min(cardW, gap - Style.space(8)))
+      var gap = colW / (n + 1)
+      var cw = Math.max(Style.space(88), Math.min(cardW, gap - Style.space(6)))
       var i, row
       for (i = 0; i < n; i++) {
         row = rows[i]
-        place(row, subline, gap * (i + 1) - cw / 2, y, cw, cardH, kind,
+        place(row, subline, colX + gap * (i + 1) - cw / 2, y, cw, cardH, kind,
               metricFn ? metricFn(row) : root.rttText(row),
               lightsFn ? lightsFn(row) : [])
       }
     }
-    rowBand(root.machines, "machine", Style.space(16), "machine", root.machineMetric, null)
-    var hub = root.hubGroup()
-    var hubW = Style.space(128)
-    var hubH = Style.space(100)
-    if (hub) {
-      place(hub, "gateway", (w - hubW) / 2, Style.space(120), hubW, hubH, "hub",
+
+    var machines = root.internalMachines(router)
+    colBand(machines, "machine", Style.space(28), "machine", root.machineMetric, null, 0, leftW)
+
+    if (hub && String(hub.zone || "") !== "external") {
+      var hubW = Style.space(120)
+      var hubH = Style.space(100)
+      place(hub, "gateway", (leftW - hubW) / 2, Style.space(132), hubW, hubH, "hub",
             root.serviceMetric(hub), root.serviceLights(hub))
     }
-    var svcs = []
-    var i
-    for (i = 0; i < root.groups.length; i++) {
-      if (hub && String(root.groups[i].id) === String(hub.id)) continue
-      svcs.push(root.groups[i])
-    }
-    rowBand(svcs, "service", Style.space(232), "service", root.serviceMetric, root.serviceLights)
+
+    var svcs = root.internalGroups(hub)
+    colBand(svcs, "service", Style.space(250), "service", root.serviceMetric, root.serviceLights, 0, leftW)
+
     if (root.quietLan.length) {
       var cluster = root.lanClusterRow()
-      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(338),
-            Style.space(300), Style.space(78), "lan", cluster.metric, cluster.lights)
+      var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
+      place(cluster, "leftover", (leftW - clusterW) / 2, Style.space(360),
+            clusterW, Style.space(72), "lan", cluster.metric, cluster.lights)
+    }
+
+    if (root.mapHasExternal) {
+      var rw = Math.min(Style.space(118), barW - Style.space(14))
+      var rh = Style.space(124)
+      var ry = Math.max(Style.space(56), (h - rh) / 2 - Style.space(12))
+      if (router) {
+        place(router, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
+              root.routerMetric(router), [])
+      } else if (hub) {
+        place(hub, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
+              root.serviceMetric(hub), root.serviceLights(hub))
+      }
+    }
+
+    if (externals.length) {
+      var railX = barX + barW
+      var cw = Math.min(Style.space(120), Math.max(Style.space(96), rightW - Style.space(16)))
+      var gapY = Style.space(10)
+      var startY = Style.space(36)
+      var i, row, y
+      for (i = 0; i < externals.length; i++) {
+        row = externals[i]
+        y = startY + i * (cardH + gapY)
+        place(row, "external", railX + (rightW - cw) / 2, y, cw, cardH, "external",
+              root.serviceMetric(row), root.serviceLights(row))
+      }
     }
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
@@ -1377,10 +1513,10 @@ Panel {
       if (status === "down") return Qt.alpha(root.statusColor("down"), 0.12)
       return root.card
     }
-    border.width: selected || status === "down" || kind === "hub" ? 2 : 1
+    border.width: selected || status === "down" || kind === "hub" || kind === "router" ? 2 : 1
     border.color: {
-      if (kind === "hub" && status !== "down")
-        return Qt.alpha(Color.accent, selected ? 1.0 : 0.75)
+      if ((kind === "hub" || kind === "router") && status !== "down")
+        return Qt.alpha(Color.accent, selected ? 1.0 : 0.85)
       if (selected)
         return Qt.alpha(root.statusColor(status), 1.0)
       if (status === "down")
@@ -1639,7 +1775,7 @@ Panel {
     borderSpec: root.view === "glance" && root.glanceTab === "map"
         ? Border.flat(Color.accent, 2) : Border.none()
     contentWidth: panel.fittedContentWidth(root.view === "glance" && root.glanceTab === "map"
-        ? Style.space(1120) : Style.space(560))
+        ? Style.space(1280) : Style.space(560))
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
 
     PanelKeyCatcher {
@@ -1717,7 +1853,11 @@ Panel {
               }
               Text {
                 width: parent.width
-                text: root.glanceTab === "map" ? "Machines → Caddy → services · leftover LAN clustered" : "Dash · colour lights · toggle the noise"
+                text: root.glanceTab === "map"
+                    ? (root.mapHasExternal
+                        ? "INTERNAL · router bar (live traffic) · EXTERNAL"
+                        : "Machines → Caddy → services · leftover LAN clustered")
+                    : "Dash · colour lights · toggle the noise"
                 color: root.inkDim
                 font.family: root.fontFamily
                 font.pixelSize: 11
@@ -1844,16 +1984,112 @@ Panel {
           spacing: Style.space(8)
           visible: root.view === "glance"
 
-          Rectangle {
+            Rectangle {
             id: mapArea
             width: parent.width
-            height: Style.space(420)
+            height: Style.space(460)
             visible: root.glanceTab === "map"
             radius: Style.space(14)
             color: Color.popups.background
             border.width: 1
             border.color: Qt.alpha(Color.accent, 0.35)
             onWidthChanged: root.recalcMapLayout()
+            onHeightChanged: root.recalcMapLayout()
+            clip: true
+
+            // Full-height router column between INTERNAL and EXTERNAL
+            Rectangle {
+              id: routerBar
+              visible: root.mapHasExternal && root.mapBarWidth > 0
+              x: root.mapSplitX
+              y: Style.space(6)
+              width: root.mapBarWidth
+              height: parent.height - Style.space(12)
+              radius: Style.space(10)
+              color: Qt.alpha(Color.accent, 0.08)
+              border.width: 1
+              border.color: Qt.alpha(Color.accent, 0.45)
+
+              // Traffic pulse strip down the bar (speed from LAN aggregate)
+              Canvas {
+                id: routerTrafficCanvas
+                anchors.fill: parent
+                anchors.margins: Style.space(4)
+                property real phase: root.edgePhase
+                onPhaseChanged: requestPaint()
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.clearRect(0, 0, width, height)
+                  var tot = root.lanTrafficTotals()
+                  var bps = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
+                  var speed = bps > 500 ? Math.max(0.8, Math.min(6, bps / 8000)) : 1.2
+                  var accent = Qt.alpha(Color.accent, 0.75)
+                  var dim = Qt.alpha(root.ink, 0.18)
+                  ctx.strokeStyle = dim
+                  ctx.lineWidth = 2
+                  ctx.beginPath()
+                  ctx.moveTo(width / 2, 8)
+                  ctx.lineTo(width / 2, height - 8)
+                  ctx.stroke()
+                  // Moving dashes = packets through the router
+                  ctx.strokeStyle = accent
+                  ctx.lineWidth = 3
+                  ctx.setLineDash([10, 14])
+                  ctx.lineDashOffset = -phase * speed * 18
+                  ctx.beginPath()
+                  ctx.moveTo(width / 2, 8)
+                  ctx.lineTo(width / 2, height - 8)
+                  ctx.stroke()
+                  ctx.setLineDash([])
+                }
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Style.space(6)
+                text: "ROUTER"
+                color: root.inkDim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.4
+                font.bold: true
+              }
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(6)
+                text: {
+                  var t = root.lanTrafficTotals()
+                  var d = root.fmtRate(t.rx_bps)
+                  var u = root.fmtRate(t.tx_bps)
+                  return (d || u) ? ("↓" + (d || "0") + "  ↑" + (u || "0")) : "idle"
+                }
+                color: root.ink
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Text {
+              visible: root.mapHasExternal
+              x: Style.space(10)
+              y: Style.space(6)
+              text: "INTERNAL"
+              color: root.inkDim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1.2
+            }
+            Text {
+              visible: root.mapHasExternal
+              x: root.mapSplitX + root.mapBarWidth + Style.space(10)
+              y: Style.space(6)
+              text: "EXTERNAL"
+              color: root.inkDim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1.2
+            }
 
             Timer {
               interval: 50
@@ -1862,6 +2098,7 @@ Panel {
               onTriggered: {
                 root.edgePhase = (root.edgePhase + 0.05) % 1000
                 edgeCanvas.requestPaint()
+                if (routerTrafficCanvas) routerTrafficCanvas.requestPaint()
               }
             }
 
@@ -1882,6 +2119,8 @@ Panel {
                 }
                 var calm = Qt.alpha(root.ink, 0.35)
                 var hot = Qt.alpha(root.urgent, 0.6)
+                var wan = Qt.alpha(Color.accent, 0.65)
+                var lan = Qt.alpha(root.themeGreen, 0.55)
                 for (i = 0; i < root.mapEdges.length; i++) {
                   var e = root.mapEdges[i]
                   var a = pos[String(e.from || "")]
@@ -1890,14 +2129,20 @@ Panel {
                   var rowA = root.glanceRowById(e.from)
                   var rowB = root.glanceRowById(e.to)
                   var period = root.edgePulseSec(rowA, rowB)
-                  ctx.strokeStyle = (root.rttHot(rowA) || root.rttHot(rowB)) ? hot : calm
-                  ctx.lineWidth = 1.5
-                  ctx.setLineDash([6, 10])
+                  var kind = String(e.kind || "")
+                  var isWan = kind === "wan"
+                  var isLan = kind === "lan"
+                  ctx.strokeStyle = isWan ? wan : (isLan ? lan : ((root.rttHot(rowA) || root.rttHot(rowB)) ? hot : calm))
+                  ctx.lineWidth = isWan || isLan ? 1.75 : 1.5
+                  ctx.setLineDash(isWan ? [3, 7] : [6, 10])
                   ctx.lineDashOffset = -root.edgePhase * (40 / period)
                   ctx.beginPath()
-                  var mx = (a.x + b.x) / 2
+                  // Bend through the router column so traffic visibly crosses the bar.
+                  var midX = root.mapHasExternal
+                      ? (root.mapSplitX + root.mapBarWidth / 2)
+                      : ((a.x + b.x) / 2)
                   ctx.moveTo(a.x, a.y)
-                  ctx.bezierCurveTo(mx, a.y, mx, b.y, b.x, b.y)
+                  ctx.bezierCurveTo(midX, a.y, midX, b.y, b.x, b.y)
                   ctx.stroke()
                 }
               }

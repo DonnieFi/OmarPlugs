@@ -17,6 +17,9 @@ GROUP_LABELS = {
     "files": "Files",
     "dockge": "Dockge",
     "search": "Search",
+    "omotenashi": "Omotenashi",
+    "xmcp": "xMCP",
+    "modal": "Modal",
 }
 
 # Merge leftover numeric siblings (pihole1 + pihole2 → pihole).
@@ -123,16 +126,22 @@ def group_nodes(nodes: list[dict]) -> dict[str, list]:
                     leftover_proxies.append(n)
             continue
         grouped_ids.update(str(n.get("id") or "") for n in members if n.get("id"))
-        services.append(
-            {
-                "id": f"svc-{key}",
-                "key": key,
-                "label": _pretty_label(key, members),
-                "kind": "service",
-                "member_ids": [str(n.get("id") or "") for n in members if n.get("id")],
-                "roles": [member_role(n) for n in members],
-            }
-        )
+        zones = {
+            str(n.get("zone") or "").strip().lower()
+            for n in members
+            if str(n.get("zone") or "").strip()
+        }
+        svc: dict[str, Any] = {
+            "id": f"svc-{key}",
+            "key": key,
+            "label": _pretty_label(key, members),
+            "kind": "service",
+            "member_ids": [str(n.get("id") or "") for n in members if n.get("id")],
+            "roles": [member_role(n) for n in members],
+        }
+        if "external" in zones:
+            svc["zone"] = "external"
+        services.append(svc)
 
     services.sort(key=lambda s: (0 if s["key"] == "ha" else 1, s["label"].lower()))
     return {

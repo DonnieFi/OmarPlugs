@@ -1,21 +1,22 @@
 # Agent Instructions
 
-OmarPlugs is a monorepo of Omarchy Quickshell plugins. The shipped plugin today is **Lanarchy** under `homelab-mesh/` (manifest id `donnie.homelab-mesh`).
+**Lanarchy** — Omarchy Quickshell bar plugin (`donnie.homelab-mesh`). This repository root *is* the plugin (marketplace layout: `manifest.json` at root).
 
 `CLAUDE.md` is a pointer here — keep project guidance in this file only.
 
 ## Layout
 
-- `homelab-mesh/` — Lanarchy (QML panel, Python collectors, tests, docs)
-- `README.md` — repo front page; deep docs live in `homelab-mesh/README.md`
+- `Panel.qml` + Python collectors — the plugin
+- `README.md` — Install · Usage · Configure · Remove
+- `docs/` — architecture and screenshots
 - Dotfiles (`.agents/`, `.beads/`, `.cursor/`, …) are gitignored — do not commit them
 
-## Lanarchy work
+## Work
 
 Before changing behaviour, read:
 
-- [`homelab-mesh/README.md`](homelab-mesh/README.md) — install, Search network, IPC
-- [`homelab-mesh/docs/architecture.md`](homelab-mesh/docs/architecture.md) — inventory / history / notify sidecars
+- [`README.md`](README.md) — install, Search network, IPC
+- [`docs/architecture.md`](docs/architecture.md) — inventory / history / notify sidecars
 
 Runtime install path (usually a symlink to this tree):
 
@@ -24,9 +25,8 @@ Runtime install path (usually a symlink to this tree):
 ### Tests
 
 ```bash
-cd homelab-mesh
 for t in test_*.py; do python3 "$t"; done
-omarchy plugin validate ./homelab-mesh
+omarchy plugin validate .
 ```
 
 After QML changes: `omarchy-restart-shell`, then summon and smoke the panel.
@@ -37,7 +37,7 @@ Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from 
 
 ### Git
 
-- Remote for this repo: `github` → `DonnieFi/OmarPlugs` (private). Do not assume `origin` (`git.lan`) works.
+- Remote for this repo: `github` → `DonnieFi/OmarPlugs` (must be **public** for marketplace).
 - Commit and push only when the user asks.
 - Keep commits atomic; do not mix plugin code with unrelated docs unless asked.
 

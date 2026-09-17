@@ -52,6 +52,8 @@ Per-node optional fields:
 | `hidden` | boolean | `false` | Drop from leftover LAN even when the LAN toggle is on |
 | `mapBand` | string | derived from `type` | Override band key for letterbox layout (`machine`, `host`, `proxy`) |
 | `mapOrder` | integer | list order | Stable sort within band |
+| `zone` | string | internal | Set `external` to place the service on the map's right-hand WAN rail |
+| `httpReachable` | boolean | `false` | HTTP proxy: any response code (incl. 401/404) counts as up — for workers without a public health path |
 
 Normalization rules:
 

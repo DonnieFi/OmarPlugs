@@ -151,6 +151,37 @@ def probe_proxy_node(node: dict) -> dict:
     pid = str(node.get("id") or label)
     host, port, url = probe_target(node)
     row = {"id": pid, "label": label, "check": check if check in ("http", "tcp") else "tcp"}
+    zone = str(node.get("zone") or "").strip().lower()
+    if zone:
+        row["zone"] = zone
+    if check == "http":
+        if not url:
+            row["status"] = "unknown"
+            return row
+        # Prefer explicit host; else parse from URL for DNS health.
+        if not host:
+            try:
+                from urllib.parse import urlparse
+
+                host = urlparse(url).hostname
+            except Exception:
+                host = None
+        if host and resolve_ipv4(host) is None:
+            row["status"] = "unknown"
+            return row
+        timing = http_timing(url or "")
+        code = timing.get("http_code")
+        # Cloud edges often answer 401/404 without a public health path — treat
+        # any HTTP response as up when httpReachable is set on the inventory node.
+        if node.get("httpReachable") is True:
+            row["status"] = "up" if code is not None else "down"
+        else:
+            row["status"] = "up" if code and 200 <= int(code) < 400 else "down"
+        if timing:
+            row["connect_ms"] = timing["connect_ms"]
+            row["ttfb_ms"] = timing["ttfb_ms"]
+            row["http_code"] = code
+        return row
     if not host:
         row["status"] = "unknown"
         return row
@@ -158,19 +189,10 @@ def probe_proxy_node(node: dict) -> dict:
     if resolve_ipv4(host) is None:
         row["status"] = "unknown"
         return row
-    if check == "http":
-        timing = http_timing(url or "")
-        code = timing.get("http_code")
-        row["status"] = "up" if code and 200 <= int(code) < 400 else "down"
-        if timing:
-            row["connect_ms"] = timing["connect_ms"]
-            row["ttfb_ms"] = timing["ttfb_ms"]
-            row["http_code"] = code
-    else:
-        ms = tcp_timing(host or "", int(port or 0))
-        row["status"] = "up" if ms is not None else "down"
-        if ms is not None:
-            row["connect_ms"] = ms
+    ms = tcp_timing(host or "", int(port or 0))
+    row["status"] = "up" if ms is not None else "down"
+    if ms is not None:
+        row["connect_ms"] = ms
     return row
 
 

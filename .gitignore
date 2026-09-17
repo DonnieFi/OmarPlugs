@@ -24,14 +24,14 @@ sand-secrets.json
 *.db-wal
 *.db-shm
 
-# Homelab mesh — repo ships default inventory.json; local overrides stay untracked
-homelab-mesh/inventory.local.json
-homelab-mesh/inventory.json.bak
-homelab-mesh/*.log
-homelab-mesh/unifi-secrets.json
-homelab-mesh/snapshot.json
-homelab-mesh/history.json*
-homelab-mesh/notify-state.json
+# Runtime sidecars — repo ships default inventory.json; live state stays untracked
+inventory.local.json
+inventory.json.bak
+*.log
+unifi-secrets.json
+snapshot.json
+history.json*
+notify-state.json
 
 # Scratch
 *.tmp

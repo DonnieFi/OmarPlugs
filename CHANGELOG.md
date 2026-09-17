@@ -3,6 +3,13 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.2 — 2026-09-17
+
+- Map: three columns — INTERNAL | ROUTER bar | EXTERNAL
+- Router bar (redUltra) shows live aggregate LAN ↓/↑ traffic; edges bend through it
+- Cloud boxes: Omotenashi worker, xMCP, Modal smoke (`httpReachable` for 401/404 edges)
+- Packaging: plugin root is the git repo root (marketplace `omarchy plugin add` layout)
+
 ## 0.3.1 — 2026-09-17
 
 - Stop grey↔LIVE flicker: keep applying snapshot while the panel is closed (bar chip)

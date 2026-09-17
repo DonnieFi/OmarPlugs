@@ -138,7 +138,10 @@ def test_collect_soft_fails_without_avahi(monkeypatch=None) -> None:
     discover_lib._cache.update(ts=float("-inf"), rows=[])
     try:
         rows = collect_discover()
-        assert all(r["source"] == "neigh" for r in rows)
+        assert isinstance(rows, list)
+        assert all(r.get("source") == "neigh" for r in rows)
+        # Soft-fail still returns neigh rows when the ARP table has lladdrs; empty is also fine.
+        assert rows == [] or all("ip" in r and "mac" in r for r in rows)
     finally:
         discover_lib.AVAHI_CMD = saved[0]
         discover_lib._cache.update(saved[1])

@@ -853,8 +853,8 @@ Panel {
     }
     var next = root.nodes.slice()
     next.push(node)
-    if (!root.writeNodes(next)) return
-    root.discover = root.discover.filter(function(x) { return !(x.ip === c.ip && x.mac === c.mac && x.label === c.label) })
+    root.writeNodes(next)
+    // Discover list refreshes from the next snapshot merge (known hosts drop out).
   }
 
   function writeNodes(nextNodes) {

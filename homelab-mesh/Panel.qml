@@ -55,6 +55,7 @@ Panel {
   // setup / form state
   property var nodes: []
   property bool inventoryLoading: false
+  property bool inventoryReady: false
   property string inventoryError: ""
   property bool formIsNew: true
   property string formId: ""
@@ -588,7 +589,10 @@ Panel {
       next.push(n)
     }
     root.mapSelectedId = id
-    root.writeNodes(next)
+    if (!root.writeNodes(next)) {
+      if (root.view === "glance")
+        root.actionStatus = root.inventoryError || "Save refused"
+    }
   }
 
   readonly property string glanceStatusLine: {
@@ -661,6 +665,7 @@ Panel {
   function loadInventory() {
     root.inventoryError = ""
     root.inventoryLoading = true
+    root.inventoryReady = false
     if (invDumpProc.running) invDumpProc.running = false
     invDumpProc.command = ["python3", root.pluginDir + "/inventory_cli.py", "dump"]
     invDumpProc.running = true
@@ -671,14 +676,22 @@ Panel {
     try { data = JSON.parse(text || "{}") || {} } catch (e) {
       root.inventoryError = "Bad inventory JSON"
       root.inventoryLoading = false
+      root.inventoryReady = false
       return
     }
     if (data.error) {
       root.inventoryError = String(data.error)
       root.inventoryLoading = false
+      root.inventoryReady = false
       return
     }
-    root.nodes = data.nodes instanceof Array ? data.nodes : []
+    if (!(data.nodes instanceof Array)) {
+      root.inventoryError = "Inventory dump missing nodes"
+      root.inventoryLoading = false
+      root.inventoryReady = false
+      return
+    }
+    root.nodes = data.nodes
     root.mapEdges = data.edges instanceof Array ? data.edges : []
     if (!root.asOf) {
       var seeded = []
@@ -694,6 +707,7 @@ Panel {
       root.groups = data.groups
     }
     root.inventoryLoading = false
+    root.inventoryReady = true
     root.rebuildMapEdges()
     root.recalcMapLayout()
     if (data.migratedFromV1) {
@@ -707,18 +721,29 @@ Panel {
   function buildFormNode() {
     var label = String(root.formLabel || "").trim()
     if (!label) return null
-    var node = {
-      id: root.formIsNew ? root.slugify(label) : String(root.formId || root.slugify(label)),
-      type: String(root.formType || "machine"),
-      label: label
+    var node
+    if (root.formIsNew) {
+      node = {}
+    } else {
+      var existing = root.invNodeById(root.formId)
+      if (!existing) return null
+      node = JSON.parse(JSON.stringify(existing))
     }
+    node.id = root.formIsNew ? root.slugify(label) : String(root.formId || root.slugify(label))
+    node.type = String(root.formType || "machine")
+    node.label = label
     var dns = String(root.formDns || "").trim()
     var ip = String(root.formIp || "").trim()
     if (node.type === "machine" || node.type === "host") {
+      delete node.check
+      delete node.url
+      delete node.port
       if (dns) node.dns = dns
+      else delete node.dns
       node.ip = ip ? ip : null
       if (!dns && !ip) return null
-      if (!root.formNotify) node.notify = false
+      if (root.formNotify) delete node.notify
+      else node.notify = false
       return node
     }
     node.check = String(root.formCheck || "tcp")
@@ -726,24 +751,33 @@ Panel {
       var url = String(root.formUrl || "").trim()
       if (!url) return null
       node.url = url
-      if (!root.formNotify) node.notify = false
+      delete node.dns
+      delete node.ip
+      delete node.port
+      if (root.formNotify) delete node.notify
+      else node.notify = false
       return node
     }
     if (dns) node.dns = dns
+    else delete node.dns
     if (ip) node.ip = ip
     else node.ip = null
+    delete node.url
     var port = parseInt(String(root.formPort || ""), 10)
     if (!isFinite(port)) return null
     if (!dns && !ip) return null
     node.port = port
-    if (!root.formNotify) node.notify = false
+    if (root.formNotify) delete node.notify
+    else node.notify = false
     return node
   }
 
   function saveForm() {
     var node = root.buildFormNode()
     if (!node) {
-      root.inventoryError = "Fill required fields"
+      root.inventoryError = root.formIsNew || root.invNodeById(root.formId)
+          ? "Fill required fields"
+          : "Node missing from inventory"
       return
     }
     var next = []
@@ -774,6 +808,14 @@ Panel {
   }
 
   function writeNodes(nextNodes) {
+    if (!root.inventoryReady || root.inventoryLoading) {
+      root.inventoryError = "Inventory not loaded"
+      return false
+    }
+    if (!(nextNodes instanceof Array) || nextNodes.length === 0) {
+      root.inventoryError = "Refusing empty inventory write"
+      return false
+    }
     root.inventoryError = ""
     var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
     // Write via temp file: JSON has no single-quotes so bash single-quoting is safe.
@@ -782,6 +824,7 @@ Panel {
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
     ]
     invWriteProc.running = true
+    return true
   }
 
   onOpenedChanged: {

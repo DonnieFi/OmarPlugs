@@ -66,12 +66,19 @@ def cmd_write(path: Path, json_file: Path) -> int:
         raw = json.loads(json_file.read_text(encoding="utf-8"))
     if isinstance(raw, list):
         raw = {"schemaVersion": 2, "nodes": raw}
+    nodes = raw.get("nodes") if isinstance(raw, dict) else None
+    if not isinstance(nodes, list) or len(nodes) == 0:
+        print(json.dumps({"error": "refusing empty inventory write"}), file=sys.stderr)
+        return 1
     if path.exists():
         current = load_inventory(path)
         for key in ("settings", "edges"):
             if key not in raw and key in current:
                 raw[key] = current[key]
     inv = normalize_inventory(raw)
+    if not inv["nodes"]:
+        print(json.dumps({"error": "refusing empty inventory write"}), file=sys.stderr)
+        return 1
     save_inventory(inv, path)
     print(json.dumps({"ok": True, "nodes": len(inv["nodes"]), "path": str(path)}))
     return 0

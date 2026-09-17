@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import os
+import re
 import ssl
 import urllib.error
 import urllib.request
@@ -338,16 +339,42 @@ def _project_device(row: dict) -> dict[str, Any]:
     }
 
 
+_MAC_TAIL = re.compile(r"\s+[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){1,5}\s*$")
+_NOISE_CLIENT = re.compile(
+    r"(iphone|ipad|ipod|android|pixel\b|galaxy\b|wyze|camera|\bcam\b|chromecast|"
+    r"google\s*wifi|apple\s*watch|fire\s*tv|roku|\btv\b|sonos|echo\b|kindle)",
+    re.I,
+)
+
+
+def client_stem(name: str) -> str:
+    """UniFi often labels clients `hostname ab:cd` — strip the MAC tail for matching."""
+    return _MAC_TAIL.sub("", str(name or "").strip()).strip() or str(name or "").strip()
+
+
+def classify_client(client: dict) -> str | None:
+    """Wired UniFi clients are the real boxes/VMs; skip phone/IoT noise; wireless leftovers stay hosts."""
+    label = str(client.get("name") or client.get("hostname") or "")
+    if _NOISE_CLIENT.search(label):
+        return None
+    if client.get("wireless"):
+        return "host"
+    return "machine"
+
+
 def _project_client(row: dict) -> dict[str, Any]:
-    wireless = bool(row.get("is_wired") is False or row.get("wireless") or row.get("essid") or row.get("ap_mac"))
-    if row.get("is_wired") is True:
+    link = str(row.get("type") or "").upper()
+    wireless = link == "WIRELESS" or bool(
+        row.get("is_wired") is False or row.get("wireless") or row.get("essid") or row.get("ap_mac")
+    )
+    if row.get("is_wired") is True or link == "WIRED":
         wireless = False
-    name = str(row.get("name") or row.get("hostname") or row.get("ip") or row.get("mac") or "client")
+    name = str(row.get("name") or row.get("hostname") or row.get("ip") or row.get("ipAddress") or row.get("mac") or row.get("macAddress") or "client")
     return {
         "name": name,
         "hostname": str(row.get("hostname") or "") or None,
         "ip": str(row.get("ip") or row.get("ipAddress") or "") or None,
-        "mac": fmt_mac(str(row.get("mac") or "")),
+        "mac": fmt_mac(str(row.get("mac") or row.get("macAddress") or "")),
         "wireless": wireless,
         "network": str(row.get("network") or row.get("network_name") or "") or None,
     }
@@ -367,8 +394,24 @@ def known_from(nodes: list[dict]) -> dict[str, set[str]]:
             if val:
                 hosts.add(val)
                 hosts.add(val.removesuffix(".lan"))
+                hosts.add(val.removesuffix(".local"))
+                stem = client_stem(val).lower()
+                if stem:
+                    hosts.add(stem)
+                    hosts.add(stem.removesuffix(".lan"))
     macs.discard("")
     return {"ips": ips, "macs": macs, "hosts": hosts}
+
+
+def _host_known(name: str, known: dict[str, set[str]]) -> bool:
+    raw = str(name or "").strip().lower()
+    if not raw:
+        return False
+    stem = client_stem(raw).lower()
+    for cand in (raw, stem, raw.removesuffix(".lan"), stem.removesuffix(".lan"), stem.split()[0] if stem else ""):
+        if cand and cand in known["hosts"]:
+            return True
+    return False
 
 
 def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
@@ -391,16 +434,20 @@ def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
             }
         )
     for client in unifi.get("clients") or []:
+        role = classify_client(client)
+        if role is None:
+            continue
         ip = str(client.get("ip") or "")
         mac = fmt_mac(str(client.get("mac") or "")) or ""
-        hostn = str(client.get("hostname") or client.get("name") or "").strip().lower()
+        hostn = str(client.get("hostname") or client.get("name") or "").strip()
+        label = client_stem(str(client.get("name") or hostn or ip or mac))
         if ip and ip in known["ips"]:
             continue
         if mac and mac in known["macs"]:
             continue
-        if hostn and (hostn in known["hosts"] or hostn.removesuffix(".lan") in known["hosts"]):
+        if _host_known(hostn, known) or _host_known(label, known):
             continue
-        key = ip or mac or hostn
+        key = ip or mac or hostn.lower()
         if not key or key in seen:
             continue
         seen.add(key)
@@ -408,8 +455,8 @@ def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
             {
                 "source": "unifi",
                 "kind": "client",
-                "type": "host",
-                "label": client.get("name") or ip or mac,
+                "type": role,
+                "label": label or ip or mac,
                 "host": client.get("hostname") or None,
                 "ip": ip or None,
                 "mac": mac or None,

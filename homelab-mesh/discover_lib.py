@@ -113,9 +113,11 @@ def neigh_candidates(neigh: list[dict], taken_ips: set[str]) -> list[dict]:
 
 
 def known_targets(nodes: list[dict], hist: dict) -> dict[str, set[str]]:
-    """Inventory dns/ip/mac plus the ip/mac history remembered per node while it was up."""
+    """Inventory dns/ip/mac plus history remembered on machines (not reverse-proxied hosts)."""
     known = known_from(nodes)
     for n in nodes:
+        if str(n.get("type") or "") != "machine":
+            continue
         meta = node_meta(hist, str(n.get("id") or ""))
         if meta.get("ip"):
             known["ips"].add(str(meta["ip"]))
@@ -147,7 +149,10 @@ def same_device(a: dict, b: dict) -> bool:
 
 
 def merge_discover(*lists: list[dict], known: dict[str, set[str]]) -> list[dict]:
-    """Union of candidate lists minus inventory, deduped by mac, then hostname, then ip. First record wins."""
+    """Union of candidate lists minus inventory, deduped by mac/host/ip.
+
+    UniFi wired machines win over mDNS/neigh for the same device; machines list before hosts.
+    """
     out: list[dict] = []
     for c in (x for lst in lists for x in lst):
         if is_known(c, known):
@@ -156,9 +161,23 @@ def merge_discover(*lists: list[dict], known: dict[str, set[str]]) -> list[dict]
         if dup is None:
             out.append(dict(c))
             continue
-        for key in ("host", "ip", "mac"):
+        # Prefer machine over host; prefer unifi source for label/mac.
+        if str(c.get("type") or "") == "machine" and str(dup.get("type") or "") != "machine":
+            for key, val in c.items():
+                if val is not None and val != "":
+                    dup[key] = val
+            continue
+        if str(c.get("source") or "") == "unifi" and str(dup.get("source") or "") != "unifi":
+            for key in ("label", "mac", "ip", "host", "kind", "wireless"):
+                if c.get(key) is not None and c.get(key) != "":
+                    dup[key] = c[key]
+            if c.get("type"):
+                dup["type"] = c["type"]
+            continue
+        for key in ("host", "ip", "mac", "label"):
             if not dup.get(key) and c.get(key):
                 dup[key] = c[key]
+    out.sort(key=lambda r: (0 if str(r.get("type") or "") == "machine" else 1, str(r.get("label") or "").lower()))
     return out[:MAX_CANDIDATES]
 
 

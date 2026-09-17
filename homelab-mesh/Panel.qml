@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -20,6 +21,12 @@ Panel {
   readonly property color rule: Util.alpha(ink, 0.14)
   readonly property color muted: inkDim
   readonly property color dim: Util.alpha(ink, 0.72)
+  readonly property color borderIdle: Style.normalBorderColor
+  readonly property color borderHover: Style.hoverBorderColor
+  property string themePaletteRaw: ""
+  readonly property color themeGreen: root.themeColor("green", "#a6e3a1")
+  readonly property color themeYellow: root.themeColor("yellow", "#f9e2af")
+  readonly property color themeRed: root.themeColor("red", "")
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
   readonly property int refreshIntervalSec: {
@@ -52,6 +59,8 @@ Panel {
   property bool showLan: false
   property bool showProxies: false
   property string actionStatus: ""
+  property bool findHostsBusy: false
+  property string findHostsHint: ""
 
   // setup / form state
   property var nodes: []
@@ -74,6 +83,27 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  function themeColor(role, fallback) {
+    var aliases = {
+      "green": ["green", "color2", "bright_green"],
+      "yellow": ["yellow", "color3", "bright_yellow"],
+      "red": ["red", "color1", "bright_red"]
+    }
+    var keys = aliases[role] || [role]
+    var lines = String(root.themePaletteRaw || "").split("\n")
+    var found = ({})
+    var i, m
+    for (i = 0; i < lines.length; i++) {
+      m = /^\s*([A-Za-z0-9_]+)\s*=\s*["']?(#[0-9A-Fa-f]{6})/.exec(lines[i])
+      if (m) found[m[1].toLowerCase()] = m[2]
+    }
+    for (i = 0; i < keys.length; i++) {
+      if (found[keys[i]]) return found[keys[i]]
+    }
+    if (role === "red" && (!fallback || fallback === "")) return root.urgent
+    return fallback
+  }
+
   function statusGlyph(status) {
     var s = String(status || "unknown")
     if (s === "up" || s === "down") return "●"
@@ -82,9 +112,9 @@ Panel {
 
   function statusColor(status) {
     var s = String(status || "unknown")
-    if (s === "up") return "#6fbf73"
-    if (s === "degraded") return "#d4a017"
-    if (s === "down") return root.urgent
+    if (s === "up") return root.themeGreen
+    if (s === "degraded") return root.themeYellow
+    if (s === "down") return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
     return root.muted
   }
 
@@ -862,17 +892,52 @@ Panel {
     writeNodes(next)
   }
 
+  function cleanDiscoverLabel(raw) {
+    var s = String(raw || "").trim()
+    s = s.replace(/\s+[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){1,5}\s*$/i, "").trim()
+    return s || String(raw || "").trim()
+  }
+
   function discoveredNode(c) {
     if (!c) return null
-    var label = String(c.label || c.host || c.ip || "").trim()
+    var label = root.cleanDiscoverLabel(c.label || c.host || c.ip || "")
     if (!label) return null
-    var node = { type: String(c.type || "") === "machine" ? "machine" : "host", label: label, ip: c.ip ? String(c.ip) : null }
-    if (c.host) node.dns = String(c.host) + ".local"
+    var isMachine = String(c.type || "") === "machine"
+    var node = {
+      type: isMachine ? "machine" : "host",
+      label: label,
+      ip: c.ip ? String(c.ip) : null
+    }
+    if (c.mac) node.mac = String(c.mac)
+    if (c.host) {
+      var h = String(c.host).replace(/\.local$/i, "")
+      node.dns = h.indexOf(".") >= 0 ? h : (h + ".local")
+    } else if (isMachine && String(c.source || "") === "unifi") {
+      // Homelabbers usually have internal DNS — prefer .lan over typing IPs.
+      node.dns = root.slugify(label).replace(/_/g, "-") + ".lan"
+    }
     if (!node.dns && !node.ip) return null
     var id = root.slugify(label)
     if (root.invNodeById(id)) id = id + "-" + String(c.ip || c.mac || "").split(/[.:]/).pop()
     node.id = id
     return node
+  }
+
+  function findHosts() {
+    root.findHostsBusy = true
+    root.findHostsHint = root.unifiVisible()
+        ? "Scanning UniFi clients, mDNS, and ARP neighbors…"
+        : "Scanning mDNS + ARP… Add UniFi secrets for wired machine names."
+    root.refresh()
+    findHostsTimer.restart()
+  }
+
+  function discoverSourceLabel(c) {
+    var src = String((c && c.source) || "")
+    if (src === "unifi") return String(c.type || "") === "machine" ? "unifi · box" : "unifi"
+    if (src === "mdns") return "mdns"
+    if (src === "neigh") return "arp"
+    return src || "found"
   }
 
   function addDiscovered(c) {
@@ -884,7 +949,6 @@ Panel {
     var next = root.nodes.slice()
     next.push(node)
     root.writeNodes(next)
-    // Discover list refreshes from the next snapshot merge (known hosts drop out).
   }
 
   function writeNodes(nextNodes) {
@@ -930,6 +994,37 @@ Panel {
     onLoaded: {
       if (!root.opened) return
       root.applyPayload(text())
+    }
+  }
+
+  FileView {
+    id: themePaletteFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.themePaletteRaw = text()
+    onLoadFailed: root.themePaletteRaw = ""
+  }
+
+  Connections {
+    target: Color
+    function onBackgroundChanged() { themePaletteFile.reload() }
+    function onAccentChanged() { themePaletteFile.reload() }
+  }
+
+  Timer {
+    id: findHostsTimer
+    interval: 2500
+    repeat: false
+    onTriggered: {
+      root.findHostsBusy = false
+      var n = root.discover.length
+      if (n > 0)
+        root.findHostsHint = n + " candidate" + (n === 1 ? "" : "s") + " · wired UniFi boxes first"
+      else if (root.unifiVisible())
+        root.findHostsHint = "No new hosts — inventory may already cover the LAN"
+      else
+        root.findHostsHint = "Nothing new. Point settings.unifi + unifi-secrets.json at your gateway, or rely on .lan / Caddy names."
     }
   }
 
@@ -1126,10 +1221,20 @@ Panel {
   component SetupRow: Item {
     property var node: ({})
     property string trailing: ""
+    property string sourceChip: ""
     signal activated()
 
     width: parent ? parent.width : 0
-    height: Style.space(42)
+    height: Style.space(46)
+
+    Rectangle {
+      anchors.fill: parent
+      anchors.margins: Style.space(1)
+      radius: Style.space(6)
+      color: setupMa.containsMouse ? Qt.alpha(root.ink, 0.06) : "transparent"
+      border.width: 1
+      border.color: setupMa.containsMouse ? root.borderHover : Qt.alpha(root.ink, 0.10)
+    }
 
     RowLayout {
       anchors.fill: parent
@@ -1141,14 +1246,34 @@ Panel {
         Layout.preferredWidth: chipText.implicitWidth + Style.space(12)
         Layout.preferredHeight: Style.space(22)
         radius: Style.space(4)
-        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+        color: Qt.alpha(String(node.type || "") === "machine" ? root.themeGreen : root.ink, 0.12)
+        border.width: 1
+        border.color: Qt.alpha(String(node.type || "") === "machine" ? root.themeGreen : root.ink, 0.28)
         Text {
           id: chipText
           anchors.centerIn: parent
           text: String(node.type || "")
-          color: root.muted
+          color: String(node.type || "") === "machine" ? root.themeGreen : root.muted
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+      }
+      Rectangle {
+        visible: sourceChip !== ""
+        Layout.preferredWidth: srcText.implicitWidth + Style.space(10)
+        Layout.preferredHeight: Style.space(20)
+        radius: Style.space(4)
+        color: Qt.alpha(Color.accent, 0.12)
+        border.width: 1
+        border.color: Qt.alpha(Color.accent, 0.35)
+        Text {
+          id: srcText
+          anchors.centerIn: parent
+          text: sourceChip
+          color: Color.accent
+          font.family: root.fontFamily
+          font.pixelSize: 9
           font.bold: true
         }
       }
@@ -1182,16 +1307,10 @@ Panel {
       }
     }
 
-    Rectangle {
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      height: 1
-      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
-    }
-
     MouseArea {
+      id: setupMa
       anchors.fill: parent
+      hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       onClicked: activated()
     }
@@ -1229,14 +1348,27 @@ Panel {
     height: root.mapCardH
     radius: Style.space(14)
     color: {
-      if (cardMa.containsMouse) return Qt.alpha(root.ink, 0.08)
-      if (hot) return Qt.alpha(root.urgent, 0.07)
+      if (cardMa.containsMouse) return Qt.alpha(root.ink, 0.10)
+      if (hot) return Qt.alpha(root.urgent, 0.10)
+      if (status === "up") return Qt.alpha(root.themeGreen, 0.10)
+      if (status === "degraded") return Qt.alpha(root.themeYellow, 0.10)
+      if (status === "down") return Qt.alpha(root.statusColor("down"), 0.12)
       return root.card
     }
     border.width: selected || status === "down" || kind === "hub" ? 2 : 1
-    border.color: kind === "hub" && status !== "down"
-        ? Qt.alpha(Color.accent, selected ? 0.9 : 0.55)
-        : Qt.alpha(root.statusColor(status), selected ? 0.9 : (status === "unknown" ? 0.5 : 0.65))
+    border.color: {
+      if (kind === "hub" && status !== "down")
+        return Qt.alpha(Color.accent, selected ? 1.0 : 0.75)
+      if (selected)
+        return Qt.alpha(root.statusColor(status), 1.0)
+      if (status === "down")
+        return Qt.alpha(root.statusColor(status), 0.95)
+      if (status === "up")
+        return Qt.alpha(root.themeGreen, 0.70)
+      if (status === "degraded")
+        return Qt.alpha(root.themeYellow, 0.70)
+      return root.borderIdle
+    }
 
     Rectangle {
       visible: !mapBox.isLan
@@ -1575,8 +1707,8 @@ Panel {
               height: Style.space(32)
               width: statusRow.implicitWidth + Style.space(20)
               radius: Style.space(16)
-              color: Qt.alpha(root.glanceStatusTint, 0.14)
-              border.color: Qt.alpha(root.glanceStatusTint, 0.5)
+              color: Qt.alpha(root.glanceStatusTint, 0.16)
+              border.color: Qt.alpha(root.glanceStatusTint, 0.72)
               border.width: 1
               Row {
                 id: statusRow
@@ -1698,7 +1830,7 @@ Panel {
             radius: Style.space(14)
             color: Color.popups.background
             border.width: 1
-            border.color: Qt.alpha(root.ink, 0.17)
+            border.color: Qt.alpha(Color.accent, 0.35)
             onWidthChanged: root.recalcMapLayout()
 
             Timer {
@@ -1992,10 +2124,27 @@ Panel {
         }
 
         // ——— SETUP LIST ———
-        Column {
+        Flickable {
+          id: setupScroll
           width: parent.width
-          spacing: Style.space(8)
+          height: Math.min(Style.space(560), setupCol.implicitHeight)
           visible: root.view === "setup"
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          contentWidth: width
+          contentHeight: setupCol.implicitHeight
+          interactive: contentHeight > height
+          flickDeceleration: 6000
+          maximumFlickVelocity: 2600
+          ScrollBar.vertical: ScrollBar {
+            policy: setupScroll.contentHeight > setupScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            width: 6
+          }
+
+          Column {
+            id: setupCol
+            width: setupScroll.width - (setupScroll.contentHeight > setupScroll.height ? 10 : 0)
+            spacing: Style.space(8)
 
           Text {
             visible: root.inventoryLoading
@@ -2006,9 +2155,87 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
 
+          // Find hosts — primary path for homelabbers (UniFi / mDNS / .lan), not typing IPs.
+          Rectangle {
+            visible: !root.inventoryLoading
+            width: parent.width
+            radius: Style.space(10)
+            color: Qt.alpha(Color.accent, 0.10)
+            border.width: 1
+            border.color: Qt.alpha(Color.accent, 0.45)
+            implicitHeight: findCol.implicitHeight + Style.space(20)
+
+            Column {
+              id: findCol
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              anchors.margins: Style.space(12)
+              spacing: Style.space(8)
+
+              Text {
+                width: parent.width
+                text: "Find hosts on your network"
+                color: root.ink
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
+              Text {
+                width: parent.width
+                text: root.unifiVisible()
+                    ? "Uses UniFi wired clients as real boxes/VMs, plus mDNS services and ARP neighbors. Reverse-proxy names (.lan via Caddy) stay as hosts — add the box itself from UniFi."
+                    : "Searches mDNS + ARP. Drop a UniFi API key in unifi-secrets.json to name wired machines (Home Assistant, yanagiba, …) instead of raw IPs."
+                color: root.inkDim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
+              Row {
+                spacing: Style.space(8)
+                Rectangle {
+                  implicitWidth: findLab.implicitWidth + Style.space(24)
+                  implicitHeight: Style.space(34)
+                  radius: Style.space(8)
+                  color: root.findHostsBusy ? Qt.alpha(Color.accent, 0.25) : Qt.alpha(Color.accent, 0.55)
+                  border.width: 1
+                  border.color: Color.accent
+                  Text {
+                    id: findLab
+                    anchors.centerIn: parent
+                    text: root.findHostsBusy ? "Searching…" : "Search network"
+                    color: root.ink
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                  }
+                  MouseArea {
+                    anchors.fill: parent
+                    enabled: !root.findHostsBusy
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.findHosts()
+                  }
+                }
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: root.findHostsHint !== ""
+                  text: root.findHostsHint
+                  color: root.muted
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+          }
+
+          BandCap {
+            visible: !root.inventoryLoading && root.nodes.length > 0
+            title: "INVENTORY"
+            width: parent.width
+          }
           Column {
             width: parent.width
-            spacing: 0
+            spacing: Style.space(4)
             visible: !root.inventoryLoading && root.nodes.length > 0
             Repeater {
               model: root.nodes
@@ -2023,12 +2250,12 @@ Panel {
 
           BandCap {
             visible: !root.inventoryLoading && root.discover.length > 0
-            title: "DISCOVERED · click to add"
+            title: "FOUND · click to add · machines first"
             width: parent.width
           }
           Column {
             width: parent.width
-            spacing: 0
+            spacing: Style.space(4)
             visible: !root.inventoryLoading && root.discover.length > 0
             Repeater {
               model: root.discover
@@ -2036,6 +2263,7 @@ Panel {
                 required property var modelData
                 width: parent.width
                 node: root.discoveredNode(modelData) || {}
+                sourceChip: root.discoverSourceLabel(modelData)
                 trailing: "+ add"
                 onActivated: root.addDiscovered(modelData)
               }
@@ -2043,25 +2271,22 @@ Panel {
           }
 
           Rectangle {
-            visible: !root.inventoryLoading && root.nodes.length === 0
+            visible: !root.inventoryLoading && root.nodes.length === 0 && root.discover.length === 0
             width: parent.width
-            height: Style.space(64)
-            radius: Style.space(6)
-            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.05)
+            height: Style.space(56)
+            radius: Style.space(8)
+            color: Qt.alpha(root.ink, 0.04)
             border.width: 1
-            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+            border.color: root.borderIdle
             Text {
               anchors.centerIn: parent
-              text: "Add a node"
-              color: root.foreground
+              width: parent.width - Style.space(24)
+              horizontalAlignment: Text.AlignHCenter
+              text: "No inventory yet — Search network above, or add a node by .lan name"
+              color: root.muted
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.bold: true
-            }
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.goFormNew()
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
             }
           }
 
@@ -2071,12 +2296,14 @@ Panel {
             Rectangle {
               implicitWidth: addLab.implicitWidth + Style.space(20)
               implicitHeight: Style.space(32)
-              radius: Style.space(4)
-              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+              radius: Style.space(6)
+              color: Qt.alpha(root.ink, 0.08)
+              border.width: 1
+              border.color: root.borderIdle
               Text {
                 id: addLab
                 anchors.centerIn: parent
-                text: "Add node"
+                text: "Add node manually"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -2098,13 +2325,30 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
+          }
         }
 
         // ——— FORM ———
-        Column {
+        Flickable {
+          id: formScroll
           width: parent.width
-          spacing: Style.space(8)
+          height: Math.min(Style.space(560), formCol.implicitHeight)
           visible: root.view === "form"
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          contentWidth: width
+          contentHeight: formCol.implicitHeight
+          interactive: contentHeight > height
+          ScrollBar.vertical: ScrollBar {
+            policy: formScroll.contentHeight > formScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            width: 6
+          }
+
+          Column {
+            id: formCol
+            width: formScroll.width - (formScroll.contentHeight > formScroll.height ? 10 : 0)
+            spacing: Style.space(8)
+            visible: true
 
           Text {
             text: "Type"
@@ -2296,6 +2540,7 @@ Panel {
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+          }
           }
         }
         }

@@ -353,7 +353,9 @@ def _run_probe_locked(*, write_stdout: bool = True) -> dict:
             rtt_ms=row.get("ttfb_ms", row.get("connect_ms")),
             ts=ts,
         )
-    remember_macs(hist, [r for r in machines + host_rows if r.get("status") == "up"])
+    remember_macs(hist, [r for r in machines if r.get("status") == "up"])
+    # Host rows often resolve through a reverse proxy (Caddy on yanagiba) — do not
+    # stamp that box's MAC onto every *.lan service name.
     for row in machines + host_rows:
         meta_row = node_meta(hist, row["id"])
         if meta_row.get("mac"):

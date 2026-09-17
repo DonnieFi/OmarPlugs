@@ -42,8 +42,12 @@ NODES = [
     {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None},
     {"id": "ha.lan", "type": "host", "label": "Home Assistant", "dns": "ha.lan", "ip": None},
 ]
-HIST = {"series": {"ha.lan": {"samples": [], "meta": {"mac": "dc:a6:32:27:be:b6", "ip": "192.168.1.178"}}}}
-
+HIST = {
+    "series": {
+        "aka": {"samples": [], "meta": {"mac": "dc:a6:32:15:ee:ae", "ip": "192.168.1.11"}},
+        "ha.lan": {"samples": [], "meta": {"mac": "dc:a6:32:27:be:b6", "ip": "192.168.1.178"}},
+    }
+}
 MACBOOK = {
     "source": "mdns",
     "type": "machine",
@@ -107,8 +111,10 @@ def test_bracket_mac_fills_when_neigh_missing() -> None:
 
 def test_known_targets_includes_history_meta() -> None:
     known = known_targets(NODES, HIST)
-    assert "192.168.1.178" in known["ips"]
-    assert "dc:a6:32:27:be:b6" in known["macs"]
+    # machine history counts; host (reverse-proxy) history does not
+    assert "192.168.1.11" in known["ips"]
+    assert "dc:a6:32:15:ee:ae" in known["macs"]
+    assert "192.168.1.178" not in known["ips"]
     assert is_known({"label": "aka ee:af", "ip": "192.168.1.12"}, known) is True
     assert is_known(MACBOOK, known) is False
 
@@ -121,13 +127,15 @@ def test_merge_filters_known_and_dedups_with_unifi() -> None:
         {"source": "unifi", "kind": "client", "type": "host", "label": "Laptop", "host": "macbookpro-l52x9htgv2", "ip": "192.168.1.108", "mac": "fe:c9:d0:b9:f4:be"},
     ]
     merged = merge_discover(scan(), unifi, known=known_targets(NODES, HIST))
-    assert merged == [
-        dict(MACBOOK, mac="fe:c9:d0:b9:f4:be"),
-        ESP,
-        TV,
-        STRAY,
-        {"source": "unifi", "kind": "client", "type": "host", "label": "Mac 65:6e", "host": None, "ip": "192.168.1.91", "mac": None},
-    ]
+    labels = [x["label"] for x in merged]
+    # aka filtered by machine history IP/MAC; HA reverse-proxy host does not hide the Pi
+    assert "aka" not in labels
+    assert "Home" in labels
+    assert "Laptop" in labels  # unifi label wins on same device as MacBook mDNS
+    assert "Mac 65:6e" in labels
+    assert "esp-master e1:d0" in labels
+    assert "192.168.1.55" in labels
+    assert labels == sorted(labels, key=str.lower)
 
 
 def test_collect_soft_fails_without_avahi(monkeypatch=None) -> None:

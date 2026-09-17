@@ -168,7 +168,7 @@ def attach_status(dash: dict, by_id: dict[str, dict]) -> list[dict]:
             elif metric is None and row.get("rtt_ms") is not None:
                 metric = row["rtt_ms"]
             members.append(member)
-        if down and not up:
+        if down and not up and down == len(members):
             status = "down"
         elif down or (up and up < len(members)):
             status = "degraded"

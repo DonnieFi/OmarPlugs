@@ -190,9 +190,12 @@ Panel {
       else if (s === "down") down++
     }
     var status = "unknown"
-    if (down && !up) status = "down"
-    else if (down || (up && up < rows.length)) status = "degraded"
-    else if (up) status = "up"
+    if (down && !up && down === rows.length)
+      status = "down"
+    else if (down || (up && up < rows.length))
+      status = "degraded"
+    else if (up)
+      status = "up"
     return {
       id: "__lan__",
       label: "LAN",

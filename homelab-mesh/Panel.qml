@@ -55,6 +55,7 @@ Panel {
   // setup / form state
   property var nodes: []
   property bool inventoryLoading: false
+  property bool inventoryReady: false
   property string inventoryError: ""
   property bool formIsNew: true
   property string formId: ""
@@ -661,6 +662,7 @@ Panel {
   function loadInventory() {
     root.inventoryError = ""
     root.inventoryLoading = true
+    root.inventoryReady = false
     if (invDumpProc.running) invDumpProc.running = false
     invDumpProc.command = ["python3", root.pluginDir + "/inventory_cli.py", "dump"]
     invDumpProc.running = true
@@ -671,14 +673,22 @@ Panel {
     try { data = JSON.parse(text || "{}") || {} } catch (e) {
       root.inventoryError = "Bad inventory JSON"
       root.inventoryLoading = false
+      root.inventoryReady = false
       return
     }
     if (data.error) {
       root.inventoryError = String(data.error)
       root.inventoryLoading = false
+      root.inventoryReady = false
       return
     }
-    root.nodes = data.nodes instanceof Array ? data.nodes : []
+    if (!(data.nodes instanceof Array)) {
+      root.inventoryError = "Inventory dump missing nodes"
+      root.inventoryLoading = false
+      root.inventoryReady = false
+      return
+    }
+    root.nodes = data.nodes
     root.mapEdges = data.edges instanceof Array ? data.edges : []
     if (!root.asOf) {
       var seeded = []
@@ -694,6 +704,7 @@ Panel {
       root.groups = data.groups
     }
     root.inventoryLoading = false
+    root.inventoryReady = true
     root.rebuildMapEdges()
     root.recalcMapLayout()
     if (data.migratedFromV1) {
@@ -774,6 +785,15 @@ Panel {
   }
 
   function writeNodes(nextNodes) {
+    // Refuse wipe: Enter/ALERT before dump loads, or failed dump, leaves root.nodes=[].
+    if (!root.inventoryReady || root.inventoryLoading) {
+      root.inventoryError = "Inventory not loaded"
+      return false
+    }
+    if (!(nextNodes instanceof Array) || nextNodes.length === 0) {
+      root.inventoryError = "Refusing empty inventory write"
+      return false
+    }
     root.inventoryError = ""
     var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
     // Write via temp file: JSON has no single-quotes so bash single-quoting is safe.
@@ -782,6 +802,7 @@ Panel {
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
     ]
     invWriteProc.running = true
+    return true
   }
 
   onOpenedChanged: {

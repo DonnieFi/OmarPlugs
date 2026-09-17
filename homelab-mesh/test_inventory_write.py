@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""inventory_cli write must refuse empty nodes (OmarPlugs-5oy.15.1)."""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CLI = HERE / "inventory_cli.py"
+
+
+def _write(inv_path: Path, payload: dict) -> subprocess.CompletedProcess:
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(payload, fh)
+        tmp = Path(fh.name)
+    try:
+        return subprocess.run(
+            [sys.executable, str(CLI), str(inv_path), "write", str(tmp)],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_refuse_empty_write() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        inv.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "nodes": [
+                        {"id": "deba", "type": "machine", "label": "deba", "dns": "deba.lan", "ip": None}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        before = inv.read_text(encoding="utf-8")
+        proc = _write(inv, {"schemaVersion": 2, "nodes": []})
+        assert proc.returncode != 0, proc.stdout + proc.stderr
+        assert "refusing empty" in proc.stderr.lower()
+        assert inv.read_text(encoding="utf-8") == before
+
+
+def test_write_keeps_one_node() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        payload = {
+            "schemaVersion": 2,
+            "nodes": [
+                {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+            ],
+        }
+        proc = _write(inv, payload)
+        assert proc.returncode == 0, proc.stderr
+        saved = json.loads(inv.read_text(encoding="utf-8"))
+        assert [n["id"] for n in saved["nodes"]] == ["aka"]
+
+
+if __name__ == "__main__":
+    test_refuse_empty_write()
+    test_write_keeps_one_node()
+    print("ok")

@@ -816,6 +816,7 @@ Panel {
       root.inventoryError = "Refusing empty inventory write"
       return false
     }
+    root.nodes = nextNodes
     root.inventoryError = ""
     var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
     // Write via temp file: JSON has no single-quotes so bash single-quoting is safe.

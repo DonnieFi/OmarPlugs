@@ -33,7 +33,8 @@ Optional **root** fields (v2.1, ignored by readers that only know v2):
     "unifi": {
       "url": "https://192.168.1.1",
       "site": "default"
-    }
+    },
+    "speedtestUrl": "https://files.lan/"
   },
   "edges": [
     { "from": "deba", "to": "git.lan", "kind": "hub" }
@@ -151,13 +152,13 @@ Panel merges glance rows with inventory `notify` for toggles in map and Setup.
 
 `daemon.py` is the single writer. `fcntl` flock on `.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `snapshot.json`.
 
-The panel **starts** the daemon on open (idempotent via flock) and **only reads** `snapshot.json` (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` CLI.
+The panel **starts** the daemon on open (idempotent via flock) and **only reads** `snapshot.json` (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` / `speedtest` CLI.
 
 Edge pulse uses `rx_bps` when present, else endpoint RTT.
 
 ## Telemetry (5oy.10)
 
-No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`).
+No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`). A machine-row Speedtest runs `probe.py speedtest --id <machine>`. That command measures curl throughput from `settings.speedtestUrl` or `https://files.lan/`, then tries iperf3 via SSH only if that binary is already present. iperf3 is not a dependency.
 
 Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash).
 

@@ -29,6 +29,7 @@ from inventory_lib import load_inventory, probe_target
 from notify_lib import process_probe_glance
 from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
 from unifi_lib import collect_unifi
+from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
     collect_machine,
     dns_time_ms,
@@ -216,9 +217,44 @@ def cmd_wol(target: str) -> int:
     return 0 if ok else 1
 
 
+def cmd_speedtest(target: str) -> int:
+    """One-shot curl throughput, then iperf3 if that binary is already on the host."""
+    try:
+        inv = load_inventory(inventory_file())
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"inventory: {e}", "method": None}))
+        return 1
+    url = resolve_speedtest_url(inv)
+    host = None
+    ssh_user = None
+    node_id = str(target or "").strip()
+    if node_id:
+        for n in inv.get("nodes") or []:
+            if str(n.get("id") or "") == node_id:
+                host, _port, _url = probe_target(n)
+                raw_user = n.get("sshUser")
+                ssh_user = str(raw_user) if raw_user else None
+                break
+        if not host:
+            snap = load_json_or(snapshot_path(), {}) or {}
+            for row in snap.get("machines") or []:
+                if str(row.get("id") or "") == node_id and row.get("host"):
+                    host = str(row["host"])
+                    break
+    result = run_speedtest(url=url, host=host, ssh_user=ssh_user)
+    if node_id:
+        result["id"] = node_id
+    print(json.dumps(result))
+    return 0 if result.get("ok") else 1
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "wol":
         return cmd_wol(sys.argv[2] if len(sys.argv) > 2 else "")
+    if len(sys.argv) > 1 and sys.argv[1] == "speedtest":
+        args = sys.argv[2:]
+        target = args[1] if len(args) >= 2 and args[0] == "--id" else (args[0] if args else "")
+        return cmd_speedtest(target)
     payload = run_probe(write_stdout=True)
     return 1 if payload.get("error") else 0
 

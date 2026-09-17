@@ -156,6 +156,15 @@ Panel {
     actionProc.running = true
   }
 
+  function speedtestNode(row) {
+    if (!row || actionProc.running) return
+    var id = String(row.id || "")
+    if (!id) return
+    root.actionStatus = "Speedtest " + String(row.label || id) + "..."
+    actionProc.command = ["python3", root.pluginDir + "/probe.py", "speedtest", "--id", id]
+    actionProc.running = true
+  }
+
   function serviceMetric(row) {
     if (!row) return "—"
     var frac = String(row.up || 0) + "/" + String(row.total || 0)
@@ -941,7 +950,10 @@ Panel {
       onStreamFinished: {
         var data = {}
         try { data = JSON.parse(text || "{}") || {} } catch (e) { data = {} }
-        if (data.ok) root.actionStatus = "Magic packet sent" + (data.mac ? " · " + data.mac : "")
+        if (data.ok && data.mbps != null)
+          root.actionStatus = String(data.method || "speed") + " · " + Number(data.mbps).toFixed(1) + " Mbps"
+        else if (data.ok)
+          root.actionStatus = "Magic packet sent" + (data.mac ? " · " + data.mac : "")
         else if (data.error) root.actionStatus = String(data.error)
         else if (String(text || "").length) root.actionStatus = String(text).trim()
       }
@@ -1004,9 +1016,11 @@ Panel {
     property string status: "unknown"
     property string metric: ""
     property bool showMetric: true
+    property bool showSpeedtest: false
     property var lights: []
     property string hoverTip: ""
     property string nodeId: ""
+    signal speedtestTapped()
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
     height: Style.space(22)
@@ -1079,6 +1093,20 @@ Panel {
         font.pixelSize: Style.font.caption
         horizontalAlignment: Text.AlignRight
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+      }
+      Text {
+        visible: showSpeedtest
+        text: "speed"
+        color: root.muted
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+        MouseArea {
+          anchors.fill: parent
+          anchors.margins: -4
+          cursorShape: Qt.PointingHandCursor
+          onClicked: speedtestTapped()
+        }
       }
     }
     }
@@ -1788,6 +1816,15 @@ Panel {
                   active: false
                   onTapped: root.wakeNode(root.glanceRowById(root.mapSelectedId))
                 }
+                SegBtn {
+                  visible: {
+                    var row = root.glanceRowById(root.mapSelectedId)
+                    return !!(row && !row.members)
+                  }
+                  label: "Speedtest"
+                  active: false
+                  onTapped: root.speedtestNode(root.glanceRowById(root.mapSelectedId))
+                }
               }
               Text {
                 visible: root.actionStatus !== ""
@@ -1825,6 +1862,8 @@ Panel {
                   status: root.displayStatus(modelData)
                   metric: root.machineMetric(modelData)
                   hoverTip: root.listRowTooltip(modelData)
+                  showSpeedtest: true
+                  onSpeedtestTapped: root.speedtestNode(modelData)
                 }
               }
 
@@ -1902,6 +1941,15 @@ Panel {
             }
           }
 
+          Text {
+            visible: root.actionStatus !== "" && root.glanceTab === "list"
+            width: parent.width
+            text: root.actionStatus
+            color: root.muted
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.Wrap
+          }
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter

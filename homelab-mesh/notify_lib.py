@@ -118,5 +118,40 @@ def process_probe_glance(
                 )
             )
     sent = apply_status_updates(state, inv, updates)
+    sent.extend(apply_unknown_neighbor_alerts(state, inv, glance))
     save_notify_state(state, state_path)
     return {"notified": sent}
+
+
+def apply_unknown_neighbor_alerts(state: dict, inv: dict, glance: dict) -> list[dict[str, Any]]:
+    """Fing-like: one notify per new lladdr in lan_meta.unknown_hosts until muted."""
+    settings = inv.get("settings") if isinstance(inv.get("settings"), dict) else {}
+    if settings.get("unknownNeighborNotify") is False:
+        return []
+    meta = glance.get("lan_meta") if isinstance(glance.get("lan_meta"), dict) else {}
+    unknowns = meta.get("unknown_hosts") if isinstance(meta.get("unknown_hosts"), list) else []
+    seen = state.setdefault("unknownNeighbors", {})
+    if not isinstance(seen, dict):
+        seen = {}
+        state["unknownNeighbors"] = seen
+    sent: list[dict[str, Any]] = []
+    for row in unknowns:
+        if not isinstance(row, dict):
+            continue
+        mac = str(row.get("mac") or "").strip().lower()
+        ip = str(row.get("ip") or "").strip()
+        key = mac or ip
+        if not key:
+            continue
+        entry = seen.setdefault(key, {"alerted": False, "muted": False, "ip": ip, "mac": mac})
+        if entry.get("muted") or entry.get("alerted"):
+            continue
+        label = ip or mac
+        title = f"Lanarchy: new neighbor {label}"
+        body = " · ".join(p for p in (ip, mac) if p)
+        _send_notification(title, body)
+        entry["alerted"] = True
+        entry["ip"] = ip or entry.get("ip")
+        entry["mac"] = mac or entry.get("mac")
+        sent.append({"id": key, "title": title, "body": body, "kind": "unknown_neighbor"})
+    return sent

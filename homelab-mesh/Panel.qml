@@ -472,8 +472,11 @@ Panel {
   function applyPayload(text) {
     var data = {}
     try { data = JSON.parse(text || "{}") || {} } catch (e) {
-      root.error = "Bad probe JSON"
-      root.loading = false
+      // Keep last-good glance; a mid-write or empty read must not flash ERROR/PROBING.
+      if (!root.asOf) {
+        root.error = "Bad probe JSON"
+        root.loading = false
+      }
       return
     }
     if (data.error) {
@@ -481,6 +484,7 @@ Panel {
       root.loading = false
       return
     }
+    if (!data.as_of && root.asOf) return
     root.asOf = String(data.as_of || "")
     root.machines = data.machines instanceof Array ? data.machines : []
     root.lan = data.lan instanceof Array ? data.lan : []
@@ -493,8 +497,10 @@ Panel {
     root.discover = data.discover instanceof Array ? data.discover : []
     root.error = ""
     root.loading = false
-    root.rebuildMapEdges()
-    root.recalcMapLayout()
+    if (root.opened) {
+      root.rebuildMapEdges()
+      root.recalcMapLayout()
+    }
   }
 
   function ensureDaemon() {
@@ -504,7 +510,8 @@ Panel {
   }
 
   function refresh() {
-    root.loading = true
+    // Only show PROBING on first fill — reloads must not grey the pill/bar.
+    if (!root.asOf) root.loading = true
     root.ensureDaemon()
     snapshotView.reload()
   }
@@ -669,7 +676,8 @@ Panel {
   function snapshotStale() {
     var age = root.asOfAgeSec()
     if (age < 0) return true
-    return age > (root.refreshIntervalSec * 2 + 5)
+    // Allow a missed probe + write lag before greying STALE / bar.
+    return age > (root.refreshIntervalSec * 4 + 15)
   }
 
   readonly property string glanceStatusLine: {
@@ -975,10 +983,15 @@ Panel {
     if (opened) {
       root.view = "glance"
       root.mapSelectedId = ""
-      root.loading = true
       root.ensureDaemon()
       loadInventory()
-      refresh()
+      // Re-apply last snapshot for map layout; avoid PROBING flash when bar already live.
+      if (!root.asOf) root.loading = true
+      snapshotView.reload()
+      if (root.asOf) {
+        root.rebuildMapEdges()
+        root.recalcMapLayout()
+      }
     } else {
       root.view = "glance"
       root.formFieldFocused = false
@@ -991,10 +1004,8 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: {
-      if (!root.opened) return
-      root.applyPayload(text())
-    }
+    // Apply while closed so the bar chip stays LIVE instead of ageing into grey.
+    onLoaded: root.applyPayload(text())
   }
 
   FileView {
@@ -1033,7 +1044,8 @@ Panel {
     stdout: StdioCollector { waitForEnd: false }
     stderr: StdioCollector { waitForEnd: false }
     onExited: function(exitCode) {
-      if (!root.opened) return
+      // Exit 0 = another instance already holds the flock; do not thrash-restart.
+      if (exitCode === 0) return
       restartDaemon.restart()
     }
   }
@@ -1042,9 +1054,18 @@ Panel {
     id: restartDaemon
     interval: 750
     repeat: false
+    onTriggered: root.ensureDaemon()
+  }
+
+  // Keep collector + bar health alive without opening the panel.
+  Timer {
+    id: bootDaemon
+    interval: 400
+    running: true
+    repeat: false
     onTriggered: {
-      if (!root.opened) return
       root.ensureDaemon()
+      snapshotView.reload()
     }
   }
 
@@ -1109,11 +1130,12 @@ Panel {
     }
   }
 
+  // Safety net if inotify misses a write; bar stays fresh while panel is closed.
   Timer {
-    interval: 2000
-    running: root.opened && root.view === "glance"
+    interval: Math.max(10000, root.refreshIntervalSec * 1000)
+    running: true
     repeat: true
-    onTriggered: if (root.opened) snapshotView.reload()
+    onTriggered: snapshotView.reload()
   }
 
   // Compact dash row: colour light + label + optional member lights + metric.
@@ -1573,10 +1595,10 @@ Panel {
   }
 
   readonly property color barHealthColor: {
-    if (root.glanceDownCount > 0) return root.urgent
-    if (root.glanceDegradedCount > 0) return "#d4a017"
+    if (root.glanceDownCount > 0) return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
+    if (root.glanceDegradedCount > 0) return root.themeYellow
     if (!root.asOf || root.snapshotStale()) return root.inkDim
-    return "#9ece6a"
+    return root.themeGreen
   }
 
   BarIconButton {

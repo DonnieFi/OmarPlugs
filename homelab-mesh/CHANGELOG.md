@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.1 — 2026-09-17
+
+- Stop grey↔LIVE flicker: keep applying snapshot while the panel is closed (bar chip)
+- Don't flash PROBING on refresh when glance data already exists
+- Wider STALE window; boot daemon without opening the panel; ignore flock exit-0 restarts
+
 ## 0.3.0 — 2026-09-16
 
 - Theme-aware map/list status colours from Omarchy `colors.toml`

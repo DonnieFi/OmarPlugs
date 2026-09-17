@@ -2,10 +2,12 @@
   "schemaVersion": 1,
   "id": "donnie.homelab-mesh",
   "name": "Lanarchy",
-  "version": "0.2.0",
-  "author": "Donnie",
+  "version": "0.3.0",
+  "author": "Donnie Fiander",
   "license": "MIT",
-  "description": "Lanarchy — homelab status map and Pulse-style list in the Omarchy bar.",
+  "description": "Homelab status map and list in the Omarchy bar — machines, Caddy services, UniFi, and Find hosts.",
+  "homepage": "https://github.com/DonnieFi/OmarPlugs/tree/main/homelab-mesh",
+  "repository": "https://github.com/DonnieFi/OmarPlugs",
   "kinds": [
     "bar-widget"
   ],

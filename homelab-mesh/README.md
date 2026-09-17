@@ -1,178 +1,259 @@
-# Lanarchy (`donnie.homelab-mesh`)
+<div align="center">
 
-Homelab status in the Omarchy bar: who is up, what services sit behind Caddy, and what just appeared on the LAN — without making you type IPs.
+<img src="docs/screenshots/map.png" width="900" alt="Lanarchy map: machines to Caddy hub to services, leftover LAN cluster, theme-coloured borders">
 
-Plugin id: `donnie.homelab-mesh`  
-Config: `~/.config/omarchy/plugins/homelab-mesh/`  
-Repo: [DonnieFi/OmarPlugs](https://github.com/DonnieFi/OmarPlugs)
+# Lanarchy
 
-Deeper sidecar formats (history, notify, edges): [`docs/architecture.md`](docs/architecture.md).
+**Homelab status in the Omarchy bar — who is up, what sits behind Caddy, and what just appeared on the LAN.**
 
----
+No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` names as reverse-proxy hosts.
 
-## Screenshots
+[![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
+[![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
+[![Version](https://img.shields.io/badge/version-0.3.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
-### List dash (default)
+Plugin id: `donnie.homelab-mesh` · Config: `~/.config/omarchy/plugins/homelab-mesh/`  
+Repo: [DonnieFi/OmarPlugs](https://github.com/DonnieFi/OmarPlugs) · Architecture: [`docs/architecture.md`](docs/architecture.md)
 
-Compact colour-light rows for machines, UniFi, and grouped services. Toggle **LAN** / **PROXIES** when you want the noisy leftovers.
-
-![List view](docs/screenshots/list.png)
-
-### Map (letterbox)
-
-Machines → Caddy hub → services, with a leftover LAN cluster. Borders and status fills follow the active Omarchy theme (`colors.toml` green / yellow / red + accent).
-
-![Map view](docs/screenshots/map.png)
-
-### Setup — Find hosts
-
-Primary onboarding: **Search network**, then click **+ add**. Manual “Add node” is the escape hatch, not the happy path.
-
-![Setup / Find hosts](docs/screenshots/setup.png)
-
-### Bar mark
-
-Castle-socket glyph on the Omarchy bar (dark / light variants under `assets/castle-socket/`).
-
-![Bar icon preview](docs/screenshots/bar-icon-preview.png)
+</div>
 
 ---
 
-## How it works (flow)
+## The idea
+
+A lab is not a flat list of IPs. You have real boxes (and VMs), a Caddy (or Traefik) front door, and a pile of `*.lan` names that all resolve to the same proxy.
+
+Lanarchy keeps that straight:
+
+| Kind | Example | Role |
+|------|---------|------|
+| **machine** | `yanagiba` @ `.92`, `homeassistant` @ `.178` | SSH / ICMP / telemetry |
+| **host** | `ha.lan`, `git.lan` | Service names, often via reverse proxy |
+| **proxy** | Caddy health URL | HTTP 2xx/3xx or TCP check |
+
+<div align="center">
+<img src="docs/screenshots/list.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
+</div>
+
+List is the default dash (Pulse-style colour lights). Map is the letterbox of the same mesh. Setup is where you **Search network** instead of hand-entering addresses.
+
+<div align="center">
+<img src="docs/screenshots/setup.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
+</div>
+
+---
+
+## Install
+
+Plugins run **unsandboxed** inside your long-lived `omarchy-shell` process. Only add repos you trust; read them before enabling ([Omarchy shell plugins](https://omarchy.org)).
+
+From a public checkout of this monorepo (plugin lives in `homelab-mesh/`):
+
+```bash
+# Dev symlink (this repo)
+ln -sfn /path/to/OmarPlugs/homelab-mesh ~/.config/omarchy/plugins/homelab-mesh
+omarchy-shell shell rescanPlugins
+omarchy plugin enable donnie.homelab-mesh
+```
+
+When published as its own git root (marketplace style):
+
+```bash
+omarchy plugin add https://github.com/DonnieFi/OmarPlugs.git --enable
+# then ensure the checkout exposes manifest.json at the plugin root, or symlink homelab-mesh as above
+```
+
+Validate before sharing:
+
+```bash
+omarchy plugin validate ~/.config/omarchy/plugins/homelab-mesh
+```
+
+Place on the bar:
+
+```bash
+omarchy bar move donnie.homelab-mesh --section right
+```
+
+Open:
+
+```bash
+omarchy-shell shell summon donnie.homelab-mesh
+```
+
+### Optional UniFi
+
+```bash
+cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secrets.json
+# UNIFI_KEY=...   or JSON {"apiKey":"..."}
+```
+
+`unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
+
+---
+
+## Usage
+
+| Action | How |
+|--------|-----|
+| Open / close | Click the castle-socket bar icon · Esc closes |
+| List / Map | Tabs or `l` / `m` |
+| Leftover LAN / proxies | `LAN N` / `PROXIES` or `n` / `p` |
+| Refresh | `r` |
+| Setup | `⚙ Setup` or `s` |
+| Map select / notify | Arrows · Enter toggles ALERT/MUTE |
+| Find hosts | Setup → **Search network** → **+ add** |
+
+### What **Search network** does
+
+Rebuilds `snapshot.discover[]` from three sources and merges them:
+
+| Source | Meaning | Classification |
+|--------|---------|----------------|
+| **UniFi** | Wired clients from your Cloud Gateway / UDM | Prefer **`machine`**. Strips `name ab:cd` MAC tails. Drops phones / cams / TVs / Chromecast-class noise. |
+| **mDNS** | `avahi-browse` (`_ssh`, `_home-assistant`, …) | `machine` or `host` from service type |
+| **ARP** | `ip neigh` with a MAC | `host` fallback |
+
+Known inventory (ids, dns, labels, static ip/mac) is filtered out. History MAC/IP counts only for **`machine`** nodes so reverse-proxied hosts do not hide the real Caddy box. UniFi machines win over mDNS/neigh for the same device; machines list first.
+
+Adding a UniFi machine prefers a `.lan` DNS guess plus IP/MAC — lab DNS, not raw typing.
+
+Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## Configure
+
+Bar widget setting (also in `shell.json` under the widget entry):
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `refreshIntervalSec` | `15` | 5–120 |
+
+Inventory and sidecars (all under `~/.config/omarchy/plugins/homelab-mesh/`):
+
+| File | Purpose |
+|------|---------|
+| `inventory.json` | v2 nodes + optional `settings` / `edges` |
+| `history.json` | RTT sparklines / events |
+| `notify-state.json` | Fail streaks + unknown-neighbor mute |
+| `snapshot.json` | Last glance (daemon / probe) |
+| `unifi-secrets.json` | API key (optional) |
+
+Useful `inventory.json` settings:
+
+```json
+{
+  "schemaVersion": 2,
+  "settings": {
+    "failStreakThreshold": 3,
+    "unknownNeighborNotify": true,
+    "unifi": { "url": "https://192.168.1.1", "site": "default" },
+    "speedtestUrl": "https://files.lan/"
+  },
+  "nodes": []
+}
+```
+
+Empty inventory writes are refused. Setup/form saves go through `inventory_cli.py` only when you act — nothing silent.
+
+---
+
+## Remove
+
+```bash
+omarchy plugin remove donnie.homelab-mesh
+```
+
+That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/homelab-mesh/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
+
+---
+
+## Dependencies
+
+| Need | Required? | Notes |
+|------|-----------|-------|
+| Omarchy + Quickshell | yes | Bar widget host |
+| Python 3 | yes | `probe.py`, `daemon.py`, CLIs |
+| `ping`, `curl`, `ip` | yes | Probes / neigh |
+| `avahi-browse` | optional | Richer mDNS discover |
+| UniFi OS API key | optional | Named wired machines for Search |
+| `iperf3` | optional | Speedtest fallback only if already installed |
+| SSH | optional | Machine telemetry / talkers / remote speedtest |
+
+---
+
+## IPC
+
+```bash
+omarchy-shell shell summon donnie.homelab-mesh
+omarchy-shell shell hide donnie.homelab-mesh
+omarchy-shell shell rescanPlugins
+```
+
+One-shot collector (debug):
+
+```bash
+cd ~/.config/omarchy/plugins/homelab-mesh
+python3 probe.py                 # glance JSON on stdout + snapshot
+python3 probe.py wol <id|mac>
+python3 probe.py speedtest --id <machine>
+python3 inventory_cli.py dump
+python3 history_cli.py sparkline --id <node>
+```
+
+---
+
+## Icons & chrome
+
+<div align="center">
+<img src="docs/screenshots/bar-icon-preview.png" width="360" alt="Castle-socket Lanarchy bar mark preview">
+</div>
+
+| Affordance | Meaning |
+|------------|---------|
+| **Castle-socket** | Bar + header mark; alarms when glance has downs |
+| **● / ○** | Filled = up/down known; hollow = unknown / probing |
+| **Green / yellow / red** | Theme `colors.toml` status (up / degraded / down) |
+| **LIVE · …** pill | Aggregate health + `as_of` |
+| **Map / List** | View tabs |
+| **LAN N / PROXIES** | Leftover bands |
+| **ALERT / MUTE** | Per-node notify on map cards |
+| **Sparklines** | Recent RTT from history |
+| **machine / host / proxy** chips | Setup inventory type |
+| **unifi · box / mdns / arp** | Discover source on Found rows |
+
+---
+
+## How it works
 
 ```text
-inventory.json  ──►  daemon.py (15s)  ──►  probe.py
+inventory.json  ──►  daemon.py (~15s)  ──►  probe.py
                                               │
                     ┌─────────────────────────┼─────────────────────────┐
                     ▼                         ▼                         ▼
               ICMP / SSH               UniFi OS API              mDNS + ARP
-              machines/hosts           devices + clients         discover[]
                     │                         │                         │
                     └────────────► snapshot.json ◄──────────────────────┘
                                          │
-                         Panel.qml (FileView) + notify-state
+                              Panel.qml + notify-state
 ```
 
-1. **Inventory** (`inventory.json`) is the source of truth — machines you SSH to, `.lan` hosts behind Caddy, TCP/HTTP proxies.
-2. **Daemon** holds a flock and runs `probe.py` on an interval; one-shot `probe.py` works the same for debugging.
-3. **Probe** builds glance bands (`machines`, `lan`, `proxies`, `groups`, `lan_meta`, `unifi`, `discover`), appends history sparklines, and may fire desktop notifications.
-4. **Panel** watches `snapshot.json`. List/Map are read-only views; Setup writes inventory via `inventory_cli.py` (empty writes refused).
-
-Nothing is auto-added to inventory. Discover is candidates only until you click **+ add**.
-
-### Mental model for a typical lab
-
-| Thing | Example | Inventory type | How Lanarchy sees it |
-|-------|---------|----------------|----------------------|
-| Real box / VM | `yanagiba` @ `.92`, `homeassistant` @ `.178` | `machine` | UniFi wired client, or mDNS `_ssh` / `_workstation` |
-| Reverse-proxy name | `ha.lan`, `git.lan` → Caddy on yanagiba | `host` | DNS/ICMP to the name (often the proxy IP) |
-| Health check | `https://caddy.lan/health` | `proxy` | HTTP 2xx/3xx or TCP connect |
-| Noise | phones, cams, TVs | — | Filtered out of UniFi “Search network” |
-
-So: keep `ha.lan` as a **host** (the front door). Add **homeassistant** as a **machine** when you want the Pi itself. Same story for yanagiba vs every `*.lan` that Caddy terminates.
+Deeper sidecar formats: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
-## What “Search network” does
+## Versions
 
-Setup → **Find hosts on your network** → **Search network**.
-
-That button refreshes the live probe and rebuilds `snapshot.discover[]` from three sources, then merges them:
-
-| Source | What it is | Becomes |
-|--------|------------|---------|
-| **UniFi** | Wired clients from your Cloud Gateway / UDM (API key) | Prefer **`machine`**. Names cleaned (`homeassistant be:b6` → `homeassistant`). Phones / cams / TVs / Chromecast-class noise dropped. |
-| **mDNS** | `avahi-browse` services (`_ssh`, `_home-assistant`, …) | `machine` or `host` from service type |
-| **ARP neigh** | `ip neigh` entries with a MAC | `host` fallback when nothing else named the IP |
-
-Merge rules:
-
-- Inventory ids / dns / labels / static ips / macs are **known** → hidden from the list.
-- History MAC/IP counts only for **`machine`** nodes (so reverse-proxied hosts do not hide yanagiba under Caddy’s IP).
-- UniFi wired machines win over mDNS/neigh for the same device.
-- Results sort **machines first**, then alpha.
-
-Adding a UniFi machine prefers a `.lan` DNS guess (`yanagiba.lan`) plus the real IP/MAC — homelabbers usually already have internal DNS; you should not need to type `192.168…`.
-
-Without UniFi secrets, Search still runs mDNS + ARP; you just get weaker names.
+Version lives in **`manifest.json`** only. Releases bump it, add a [CHANGELOG.md](CHANGELOG.md) entry, and should be tagged `vX.Y.Z`.
 
 ---
 
-## Icons, pills, and chrome
+## Credits
 
-| Affordance | Meaning |
-|------------|---------|
-| **Castle-socket** (bar + header) | Lanarchy mark. Alarms when glance has downs. |
-| **● / ○** status glyph | Filled = up/down known; hollow = unknown / probing / no data. |
-| **Green / yellow / red** | Theme `colors.toml` (`green`, `yellow`, `red`) — up / degraded / down. Accent for hub & selected chrome. |
-| **LIVE · ALL CLEAR / …** header pill | Aggregate glance health + `as_of` clock. |
-| **Map / List** tab pills | View switch (`m` / `l`). |
-| **LAN N / PROXIES** | Show leftover hosts / proxies not folded into a service group. |
-| **⚙ Setup** | Inventory editor (`s`). |
-| **ALERT / MUTE** on map cards | Per-node notify arm. Enter toggles selection; click the chip. |
-| **Sparklines** | Recent RTT from `history.json` (via `history_cli.py`). |
-| **machine / host / proxy** chips (Setup) | Inventory type. Green border = machine. |
-| **unifi · box / mdns / arp** chips | Discover source on Found rows. |
-| **Member light dots** on service cards | Per-member up/down inside a group (HA, Pi-hole, …). |
+Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix. Discover and glance UX are Lanarchy’s own.
 
-Keyboard (glance): `r` refresh · `m`/`l` map/list · `n` LAN leftovers · `p` proxies · `s` setup · arrows select on map · Enter notify.
+MIT — see [LICENSE](LICENSE).
 
----
-
-## Enable
-
-```bash
-# symlink or copy this folder
-ln -sfn /path/to/OmarPlugs/homelab-mesh ~/.config/omarchy/plugins/homelab-mesh
-
-omarchy-shell shell rescanPlugins
-omarchy-plugin-enable donnie.homelab-mesh
-omarchy-shell shell summon donnie.homelab-mesh
-```
-
-Edit `~/.config/omarchy/plugins/homelab-mesh/inventory.json` (or use Setup).
-
----
-
-## UniFi
-
-Local Cloud Gateway / UDM at `settings.unifi.url` (default `https://192.168.1.1`).
-
-- `/api/system` needs no key → enough for the UNIFI list row (name, model).
-- Clients / APs / Search-network machine names need a Network API key:
-
-```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secrets.json
-# UNIFI_KEY=...   (or JSON {"apiKey":"..."})
-```
-
-`unifi-secrets.json` is gitignored. Never put the key in inventory.
-
----
-
-## Commands
-
-| Script | Role |
-|--------|------|
-| `daemon.py` | Singleton collector; writes `snapshot.json` ~every 15s |
-| `probe.py` | One-shot glance; also `wol <id\|mac>` and `speedtest [--id <machine>]` |
-| `inventory_cli.py` | `dump` / `migrate` / `write` (refuses empty `nodes`) |
-| `history_cli.py` | `sparkline --id <node>` for map cards |
-
-Optional speedtest URL: `settings.speedtestUrl`. Curl first; `iperf3` only if already installed — never a hard dependency.
-
----
-
-## Notifications
-
-- Fail-streak: node must be `down` N times (`settings.failStreakThreshold`, default 3). `unknown` (DNS miss, etc.) does **not** reset or advance the streak.
-- Unknown neighbor: new ARP lladdr not matching inventory / machine history → one notify per MAC until muted (`settings.unknownNeighborNotify`).
-
----
-
-## Tests
-
-```bash
-cd ~/.config/omarchy/plugins/homelab-mesh   # or the repo copy
-for t in test_*.py; do python3 "$t"; done
-```
+List at [omarchyplugins.com](https://omarchyplugins.com) when you publish a dedicated plugin repo root (see the [develop guide](https://omarchyplugins.com/develop.html): Install · Usage · Configure · Remove · LICENSE · optional `preview.png`).

@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
+The version in `manifest.json` is the single source of truth.
+
+## 0.3.0 — 2026-09-16
+
+- Theme-aware map/list status colours from Omarchy `colors.toml`
+- Stronger borders on map cards, pills, and setup rows
+- Scrollable Setup / form
+- **Search network** (Find hosts): UniFi wired machines + mDNS + ARP
+- UniFi OS `macAddress` / `ipAddress` projection; machine vs IoT noise filter
+- Reverse-proxy hosts no longer steal the Caddy box MAC in history
+- README rewritten to match Omarchy plugin develop guide + Pulse-style docs
+- Panel-only screenshots under `docs/screenshots/`
+
+## 0.2.0 — 2026-09-16
+
+- P0–P3 stack: inventory write safety, discover, sparklines, speedtest, talkers, bar health ramp, unknown-neighbor notify
+- UniFi collector + castle-socket bar mark
+
+## 0.1.0
+
+- Initial Homelab Mesh / Lanarchy glance panel

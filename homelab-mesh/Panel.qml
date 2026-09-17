@@ -1004,6 +1004,7 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         if (!root.inventoryError) root.inventoryError = "Save failed"
+        root.loadInventory()
         return
       }
       if (root.view === "form") root.view = "setup"

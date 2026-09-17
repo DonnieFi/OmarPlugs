@@ -28,7 +28,7 @@ from groups_lib import attach_status, group_nodes, leftover_rows
 from inventory_lib import load_inventory, probe_target
 from notify_lib import process_probe_glance
 from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
-from unifi_lib import collect_unifi
+from unifi_lib import collect_unifi, fmt_mac
 from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
     collect_machine,
@@ -151,6 +151,13 @@ def probe_proxy_node(node: dict) -> dict:
     pid = str(node.get("id") or label)
     host, port, url = probe_target(node)
     row = {"id": pid, "label": label, "check": check if check in ("http", "tcp") else "tcp"}
+    if not host:
+        row["status"] = "unknown"
+        return row
+    # DNS miss → unknown (same as ICMP); do not advance fail-streak.
+    if resolve_ipv4(host) is None:
+        row["status"] = "unknown"
+        return row
     if check == "http":
         timing = http_timing(url or "")
         code = timing.get("http_code")
@@ -167,20 +174,23 @@ def probe_proxy_node(node: dict) -> dict:
     return row
 
 
-def lan_meta(nodes: list[dict], ts_now: float) -> dict:
-    """Neighbor discovery + DNS health for the LAN cluster card."""
+def lan_meta(nodes: list[dict], hist: dict, ts_now: float) -> dict:
+    """Neighbor discovery + DNS health for the LAN cluster card.
+
+    Known set matches discover: inventory ip/mac plus history remembered while up.
+    Do not require live DNS resolve — a blip must not mark inventory hosts unknown.
+    """
     neigh = neighbors()
-    known_ips: set[str] = set()
-    for n in nodes:
-        ip = n.get("ip")
-        if ip:
-            known_ips.add(str(ip))
-        dns = n.get("dns")
-        if dns:
-            r = resolve_ipv4(str(dns))
-            if r:
-                known_ips.add(r)
-    unknown = [r for r in neigh if r["ip"] not in known_ips]
+    known = known_targets(nodes, hist)
+    unknown = []
+    for r in neigh:
+        ip = str(r.get("ip") or "")
+        mac = fmt_mac(str(r.get("mac") or "")) or ""
+        if ip and ip in known["ips"]:
+            continue
+        if mac and mac in known["macs"]:
+            continue
+        unknown.append(r)
     dns_ms = None
     sample = next((str(n.get("dns")) for n in nodes if n.get("type") == "host" and n.get("dns")), None)
     if sample:
@@ -290,7 +300,7 @@ def _run_probe_locked(*, write_stdout: bool = True) -> dict:
         host_nodes = [n for n in nodes if str(n.get("type") or "") == "host"]
         all_host_f = [pool.submit(probe_rtt_node, x) for x in host_nodes]
         proxies_f = [pool.submit(probe_proxy_node, x) for x in proxy_nodes]
-        meta_f = pool.submit(lan_meta, nodes, ts_now)
+        meta_f = pool.submit(lan_meta, nodes, hist, ts_now)
         unifi_f = pool.submit(collect_unifi, inv, nodes)
         discover_f = pool.submit(collect_discover)
         machines = [f.result() for f in machines_f]

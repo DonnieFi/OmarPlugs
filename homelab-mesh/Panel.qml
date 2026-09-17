@@ -48,6 +48,7 @@ Panel {
   property var quietProxies: []
   property var lanMeta: ({})
   property var unifi: ({})
+  property var discover: []
   property bool showLan: false
   property bool showProxies: false
   property string actionStatus: ""
@@ -110,6 +111,8 @@ Panel {
       var r = root.fmtRate(row.rates.rx_bps)
       if (r) bits.push("↓" + r)
     }
+    if (row.talkers && row.talkers.total > 0)
+      bits.push(row.talkers.total + " talk")
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) bits.push(up)
@@ -155,6 +158,15 @@ Panel {
     actionProc.running = true
   }
 
+  function speedtestNode(row) {
+    if (!row || actionProc.running) return
+    var id = String(row.id || "")
+    if (!id) return
+    root.actionStatus = "Speedtest " + String(row.label || id) + "..."
+    actionProc.command = ["python3", root.pluginDir + "/probe.py", "speedtest", "--id", id]
+    actionProc.running = true
+  }
+
   function serviceMetric(row) {
     if (!row) return "—"
     var frac = String(row.up || 0) + "/" + String(row.total || 0)
@@ -190,9 +202,12 @@ Panel {
       else if (s === "down") down++
     }
     var status = "unknown"
-    if (down && !up) status = "down"
-    else if (down || (up && up < rows.length)) status = "degraded"
-    else if (up) status = "up"
+    if (down && !up && down === rows.length)
+      status = "down"
+    else if (down || (up && up < rows.length))
+      status = "degraded"
+    else if (up)
+      status = "up"
     return {
       id: "__lan__",
       label: "LAN",
@@ -211,13 +226,11 @@ Panel {
     var meta = root.lanMeta || {}
     if (meta.dns_ms != null) bits.push("dns " + Math.round(Number(meta.dns_ms)) + "ms")
     if (meta.neighbors != null) bits.push(meta.neighbors + " neigh")
-    if (meta.unknown) bits.push(meta.unknown + " new")
+    if (root.discover.length) bits.push(root.discover.length + " new")
     var u = root.unifi || {}
     if (u.model) bits.push(u.model)
     var nCli = (u.clients instanceof Array) ? u.clients.length : 0
     if (nCli) bits.push(nCli + " unifi")
-    var nNew = (u.discover instanceof Array) ? u.discover.length : 0
-    if (nNew) bits.push(nNew + " unifi-new")
     return bits.join(" · ")
   }
 
@@ -287,8 +300,18 @@ Panel {
     return null
   }
 
+  function sparklineIdFor(row) {
+    if (!row) return ""
+    if (String(row.id || "") === "__lan__") return ""
+    if (row.members && row.members.length) {
+      var m = row.members[0]
+      return String((m && m.id) || "")
+    }
+    return String(row.id || "")
+  }
+
   readonly property int mapLanCap: 12
-  readonly property int mapCardH: Style.space(76)
+  readonly property int mapCardH: Style.space(94)
 
   function rttHot(row) {
     if (!row || String(row.status) !== "up") return false
@@ -330,7 +353,8 @@ Panel {
         h: hCard,
         kind: kind || subline,
         metric: metric || "",
-        lights: lights || []
+        lights: lights || [],
+        sparklineId: root.sparklineIdFor(row)
       })
     }
     function rowBand(rows, subline, y, kind, metricFn, lightsFn) {
@@ -346,12 +370,12 @@ Panel {
               lightsFn ? lightsFn(row) : [])
       }
     }
-    rowBand(root.machines, "machine", Style.space(22), "machine", root.machineMetric, null)
+    rowBand(root.machines, "machine", Style.space(16), "machine", root.machineMetric, null)
     var hub = root.hubGroup()
     var hubW = Style.space(128)
-    var hubH = Style.space(84)
+    var hubH = Style.space(100)
     if (hub) {
-      place(hub, "gateway", (w - hubW) / 2, Style.space(112), hubW, hubH, "hub",
+      place(hub, "gateway", (w - hubW) / 2, Style.space(120), hubW, hubH, "hub",
             root.serviceMetric(hub), root.serviceLights(hub))
     }
     var svcs = []
@@ -360,11 +384,11 @@ Panel {
       if (hub && String(root.groups[i].id) === String(hub.id)) continue
       svcs.push(root.groups[i])
     }
-    rowBand(svcs, "service", Style.space(214), "service", root.serviceMetric, root.serviceLights)
+    rowBand(svcs, "service", Style.space(232), "service", root.serviceMetric, root.serviceLights)
     if (root.quietLan.length) {
       var cluster = root.lanClusterRow()
-      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(312),
-            Style.space(300), Style.space(86), "lan", cluster.metric, cluster.lights)
+      place(cluster, "leftover", (w - Style.space(300)) / 2, Style.space(338),
+            Style.space(300), Style.space(78), "lan", cluster.metric, cluster.lights)
     }
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
@@ -436,6 +460,7 @@ Panel {
     root.quietProxies = data.quiet_proxies instanceof Array ? data.quiet_proxies : []
     root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
     root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
+    root.discover = data.discover instanceof Array ? data.discover : []
     root.error = ""
     root.loading = false
     root.rebuildMapEdges()
@@ -449,6 +474,7 @@ Panel {
   }
 
   function refresh() {
+    root.loading = true
     root.ensureDaemon()
     snapshotView.reload()
   }
@@ -556,6 +582,14 @@ Panel {
         + (row.link.grade === "degraded" ? " (slow port)" : ""))
     if (row.rates && row.rates.rx_bps != null)
       lines.push("↓" + root.fmtRate(row.rates.rx_bps) + "  ↑" + root.fmtRate(row.rates.tx_bps))
+    if (row.talkers && row.talkers.total != null) {
+      var talk = String(row.talkers.total) + " talk"
+      var top = row.talkers.top || []
+      var t
+      for (t = 0; t < top.length && t < 4; t++)
+        talk += "  " + String(top[t].host || "") + "×" + String(top[t].count || 0)
+      lines.push(talk)
+    }
     if (row.uptime_s != null) {
       var up = root.uptimeText(row.uptime_s)
       if (up) lines.push(up)
@@ -595,9 +629,28 @@ Panel {
     }
   }
 
+  function asOfAgeSec() {
+    if (!root.asOf) return -1
+    var t = Date.parse(String(root.asOf))
+    if (!isFinite(t)) return -1
+    return Math.max(0, (Date.now() - t) / 1000)
+  }
+
+  function snapshotStale() {
+    var age = root.asOfAgeSec()
+    if (age < 0) return true
+    return age > (root.refreshIntervalSec * 2 + 5)
+  }
+
   readonly property string glanceStatusLine: {
     if (root.loading) return "PROBING"
     if (root.error) return "ERROR"
+    if (!root.asOf) return "NO DATA"
+    if (root.snapshotStale()) return "STALE"
+    var total = root.machines.length + root.groups.length
+    if (root.showLan) total += root.quietLan.length
+    if (root.showProxies) total += root.quietProxies.length
+    if (total === 0) return "NO DATA"
     var down = 0
     var bands = [root.machines, root.groups]
     if (root.showLan) bands.push(root.quietLan)
@@ -614,7 +667,9 @@ Panel {
 
   readonly property color glanceStatusTint: {
     if (root.error) return root.urgent
-    if (glanceStatusLine.indexOf("DOWN") >= 0) return root.urgent
+    if (glanceStatusLine.indexOf("DOWN") >= 0 || glanceStatusLine === "STALE" || glanceStatusLine === "ERROR")
+      return root.urgent
+    if (glanceStatusLine === "PROBING" || glanceStatusLine === "NO DATA") return root.inkDim
     return root.ink
   }
 
@@ -807,6 +862,31 @@ Panel {
     writeNodes(next)
   }
 
+  function discoveredNode(c) {
+    if (!c) return null
+    var label = String(c.label || c.host || c.ip || "").trim()
+    if (!label) return null
+    var node = { type: String(c.type || "") === "machine" ? "machine" : "host", label: label, ip: c.ip ? String(c.ip) : null }
+    if (c.host) node.dns = String(c.host) + ".local"
+    if (!node.dns && !node.ip) return null
+    var id = root.slugify(label)
+    if (root.invNodeById(id)) id = id + "-" + String(c.ip || c.mac || "").split(/[.:]/).pop()
+    node.id = id
+    return node
+  }
+
+  function addDiscovered(c) {
+    var node = root.discoveredNode(c)
+    if (!node) {
+      root.inventoryError = "Nothing to add"
+      return
+    }
+    var next = root.nodes.slice()
+    next.push(node)
+    root.writeNodes(next)
+    // Discover list refreshes from the next snapshot merge (known hosts drop out).
+  }
+
   function writeNodes(nextNodes) {
     if (!root.inventoryReady || root.inventoryLoading) {
       root.inventoryError = "Inventory not loaded"
@@ -816,9 +896,9 @@ Panel {
       root.inventoryError = "Refusing empty inventory write"
       return false
     }
+    root.nodes = nextNodes
     root.inventoryError = ""
     var payload = JSON.stringify({ schemaVersion: 2, nodes: nextNodes })
-    // Write via temp file: JSON has no single-quotes so bash single-quoting is safe.
     invWriteProc.command = [
       "bash", "-c",
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
@@ -831,6 +911,7 @@ Panel {
     if (opened) {
       root.view = "glance"
       root.mapSelectedId = ""
+      root.loading = true
       root.ensureDaemon()
       loadInventory()
       refresh()
@@ -856,6 +937,20 @@ Panel {
     id: daemonProc
     stdout: StdioCollector { waitForEnd: false }
     stderr: StdioCollector { waitForEnd: false }
+    onExited: function(exitCode) {
+      if (!root.opened) return
+      restartDaemon.restart()
+    }
+  }
+
+  Timer {
+    id: restartDaemon
+    interval: 750
+    repeat: false
+    onTriggered: {
+      if (!root.opened) return
+      root.ensureDaemon()
+    }
   }
 
   Process {
@@ -865,7 +960,10 @@ Panel {
       onStreamFinished: {
         var data = {}
         try { data = JSON.parse(text || "{}") || {} } catch (e) { data = {} }
-        if (data.ok) root.actionStatus = "Magic packet sent" + (data.mac ? " · " + data.mac : "")
+        if (data.ok && data.mbps != null)
+          root.actionStatus = String(data.method || "speed") + " · " + Number(data.mbps).toFixed(1) + " Mbps"
+        else if (data.ok)
+          root.actionStatus = "Magic packet sent" + (data.mac ? " · " + data.mac : "")
         else if (data.error) root.actionStatus = String(data.error)
         else if (String(text || "").length) root.actionStatus = String(text).trim()
       }
@@ -928,14 +1026,17 @@ Panel {
     property string status: "unknown"
     property string metric: ""
     property bool showMetric: true
+    property bool showSpeedtest: false
     property var lights: []
     property string hoverTip: ""
+    property string nodeId: ""
+    signal speedtestTapped()
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 0)
     height: Style.space(22)
 
     PanelToolTip {
-      visible: rowMa.containsMouse && hoverTip !== ""
+      visible: rowMa.containsMouse && hoverTip !== "" && rowSpark.hoverIndex < 0
       text: hoverTip
       fontFamily: root.fontFamily
     }
@@ -945,7 +1046,6 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.NoButton
-    }
 
     RowLayout {
       anchors.fill: parent
@@ -965,6 +1065,20 @@ Panel {
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight
         Layout.fillWidth: true
+      }
+      Sparkline {
+        id: rowSpark
+        visible: nodeId !== ""
+        Layout.preferredWidth: 56
+        Layout.preferredHeight: 14
+        Layout.alignment: Qt.AlignVCenter
+        nodeId: nodeId
+        pluginDir: root.pluginDir
+        live: root.opened && root.view === "glance" && root.glanceTab === "list" && nodeId !== ""
+        stroke: root.ink
+        rateStroke: Color.accent
+        muted: root.inkDim
+        fontFamily: root.fontFamily
       }
       Row {
         spacing: 3
@@ -990,11 +1104,27 @@ Panel {
         horizontalAlignment: Text.AlignRight
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
+      Text {
+        visible: showSpeedtest
+        text: "speed"
+        color: root.muted
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+        MouseArea {
+          anchors.fill: parent
+          anchors.margins: -4
+          cursorShape: Qt.PointingHandCursor
+          onClicked: speedtestTapped()
+        }
+      }
+    }
     }
   }
 
   component SetupRow: Item {
     property var node: ({})
+    property string trailing: ""
     signal activated()
 
     width: parent ? parent.width : 0
@@ -1040,6 +1170,15 @@ Panel {
         Layout.preferredWidth: Style.space(140)
         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
       }
+      Text {
+        visible: trailing !== ""
+        text: trailing
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+      }
     }
 
     Rectangle {
@@ -1077,6 +1216,7 @@ Panel {
     property string metric: ""
     property var lights: []
     property var rttRow: null
+    property string sparklineId: ""
     property bool selected: false
     property bool notifyOn: true
     readonly property bool isLan: nodeId === "__lan__"
@@ -1127,15 +1267,22 @@ Panel {
     }
 
     PanelToolTip {
-      visible: cardMa.containsMouse
+      visible: cardMa.containsMouse && cardSpark.hoverIndex < 0
       text: root.mapCardTooltip(mapBox.nodeId, mapBox.label, mapBox.status, mapBox.notifyOn)
       fontFamily: root.fontFamily
     }
 
+    MouseArea {
+      id: cardMa
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: mapBox.activated()
+
     Column {
       anchors.fill: parent
       anchors.margins: Style.space(8)
-      spacing: Style.space(4)
+      spacing: Style.space(3)
 
       Text {
         width: parent.width
@@ -1191,6 +1338,20 @@ Panel {
           }
         }
       }
+
+      Sparkline {
+        id: cardSpark
+        width: parent.width
+        height: Style.space(16)
+        nodeId: mapBox.sparklineId
+        pluginDir: root.pluginDir
+        live: root.opened && root.view === "glance" && root.glanceTab === "map" && mapBox.sparklineId !== ""
+        stroke: root.ink
+        rateStroke: Color.accent
+        muted: root.inkDim
+        fontFamily: root.fontFamily
+      }
+    }
     }
 
     Rectangle {
@@ -1200,14 +1361,6 @@ Panel {
       height: 1
       color: root.rule
       opacity: selected ? 0.5 : 0.25
-    }
-
-    MouseArea {
-      id: cardMa
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: mapBox.activated()
     }
   }
 
@@ -1276,6 +1429,23 @@ Panel {
     return n
   }
 
+  readonly property int glanceDegradedCount: {
+    var n = 0
+    var i
+    for (i = 0; i < root.machines.length; i++)
+      if (root.displayStatus(root.machines[i]) === "degraded") n++
+    for (i = 0; i < root.groups.length; i++)
+      if (String(root.groups[i].status) === "degraded") n++
+    return n
+  }
+
+  readonly property color barHealthColor: {
+    if (root.glanceDownCount > 0) return root.urgent
+    if (root.glanceDegradedCount > 0) return "#d4a017"
+    if (!root.asOf || root.snapshotStale()) return root.inkDim
+    return "#9ece6a"
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -1283,13 +1453,17 @@ Panel {
     text: ""
     tooltipText: "Lanarchy"
     active: root.opened
+    useActiveColor: false
     iconComponent: Component {
-      LanarchyIcon {
-        anchors.fill: parent
-        color: button.foreground
-        alert: root.urgent
-        alarmed: root.glanceDownCount > 0
-        active: root.opened || root.glanceDownCount > 0
+      Item {
+        LanarchyIcon {
+          anchors.centerIn: parent
+          iconSize: Style.space(14)
+          color: root.barHealthColor
+          alert: root.urgent
+          alarmed: root.glanceDownCount > 0
+          active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
+        }
       }
     }
     onPressed: function(buttonCode) {
@@ -1327,6 +1501,7 @@ Panel {
         if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
         if (k === "n") { root.showLan = !root.showLan; root.recalcMapLayout() }
         if (k === "p") root.showProxies = !root.showProxies
+        if (k === "s") root.goSetup()
       }
       onMoveRequested: function(dx, dy) {
         if (root.view === "glance" && root.glanceTab === "map") root.moveMapSelection(dx, dy)
@@ -1589,6 +1764,7 @@ Panel {
                 metric: String(modelData.metric || "")
                 lights: modelData.lights || []
                 rttRow: modelData
+                sparklineId: String(modelData.sparklineId || "")
                 selected: root.mapSelectedId === String(modelData.id || "")
                 notifyOn: root.notifyEnabledForNodeId(nodeId)
                 onActivated: {
@@ -1668,6 +1844,15 @@ Panel {
                   active: false
                   onTapped: root.wakeNode(root.glanceRowById(root.mapSelectedId))
                 }
+                SegBtn {
+                  visible: {
+                    var row = root.glanceRowById(root.mapSelectedId)
+                    return !!(row && !row.members)
+                  }
+                  label: "Speedtest"
+                  active: false
+                  onTapped: root.speedtestNode(root.glanceRowById(root.mapSelectedId))
+                }
               }
               Text {
                 visible: root.actionStatus !== ""
@@ -1700,10 +1885,13 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: root.displayStatus(modelData)
                   metric: root.machineMetric(modelData)
                   hoverTip: root.listRowTooltip(modelData)
+                  showSpeedtest: true
+                  onSpeedtestTapped: root.speedtestNode(modelData)
                 }
               }
 
@@ -1734,6 +1922,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.serviceMetric(modelData)
@@ -1752,6 +1941,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.rttText(modelData)
@@ -1769,6 +1959,7 @@ Panel {
                 MeshRow {
                   required property var modelData
                   width: parent.width
+                  nodeId: root.sparklineIdFor(modelData)
                   label: String(modelData.label || modelData.id || "")
                   status: String(modelData.status || "unknown")
                   metric: root.rttText(modelData)
@@ -1779,11 +1970,20 @@ Panel {
           }
 
           Text {
+            visible: root.actionStatus !== "" && root.glanceTab === "list"
+            width: parent.width
+            text: root.actionStatus
+            color: root.muted
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.Wrap
+          }
+          Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
                 ? "click LAN cluster for leftovers · arrows select · Enter notify · m list"
-                : "LAN / PROXIES toggle leftovers · m map · r refresh"
+                : "LAN / PROXIES toggle leftovers · m map · r refresh · s setup"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -1816,6 +2016,27 @@ Panel {
                 width: parent.width
                 node: modelData
                 onActivated: root.goFormEdit(modelData)
+              }
+            }
+          }
+
+          BandCap {
+            visible: !root.inventoryLoading && root.discover.length > 0
+            title: "DISCOVERED · click to add"
+            width: parent.width
+          }
+          Column {
+            width: parent.width
+            spacing: 0
+            visible: !root.inventoryLoading && root.discover.length > 0
+            Repeater {
+              model: root.discover
+              SetupRow {
+                required property var modelData
+                width: parent.width
+                node: root.discoveredNode(modelData) || {}
+                trailing: "+ add"
+                onActivated: root.addDiscovered(modelData)
               }
             }
           }

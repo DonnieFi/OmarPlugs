@@ -38,7 +38,7 @@ UniFi clients that are not already inventory nodes land in `snapshot.unifi.disco
 | Script | Role |
 |--------|------|
 | `daemon.py` | Singleton collector; writes `snapshot.json` every 15s |
-| `probe.py` | One-shot glance + `wol <id\|mac>`; also used by the daemon |
+| `probe.py` | One-shot glance + `wol <id\|mac>` + `speedtest [--id <machine>]`; also used by the daemon |
 | `inventory_cli.py` | `dump` / `migrate` / `write` for QML |
 | `history_cli.py` | `sparkline --id <node>` for map sparklines |
 

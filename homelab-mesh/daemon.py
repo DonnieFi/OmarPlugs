@@ -6,10 +6,25 @@ import fcntl
 import os
 import time
 
-from plugin_paths import plugin_config_dir
-from probe import run_probe
+from inventory_lib import load_inventory
+from plugin_paths import inventory_path, plugin_config_dir
+from probe import HERE, run_probe
 
-INTERVAL_S = 15.0
+DEFAULT_INTERVAL_S = 15.0
+
+
+def probe_interval_s() -> float:
+    path = inventory_path() if inventory_path().is_file() else HERE / "inventory.json"
+    try:
+        inv = load_inventory(path)
+        settings = inv.get("settings") if isinstance(inv, dict) else None
+        raw = settings.get("probeIntervalSec") if isinstance(settings, dict) else None
+        n = float(raw)
+        if 5.0 <= n <= 120.0:
+            return n
+    except (TypeError, ValueError, OSError):
+        pass
+    return DEFAULT_INTERVAL_S
 
 
 def loop() -> int:
@@ -27,7 +42,7 @@ def loop() -> int:
                 run_probe(write_stdout=False)
             except Exception as e:
                 print(f"lanarchy daemon: {type(e).__name__}: {e}", flush=True)
-            time.sleep(INTERVAL_S)
+            time.sleep(probe_interval_s())
 
 
 if __name__ == "__main__":

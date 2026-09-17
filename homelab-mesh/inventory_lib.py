@@ -131,6 +131,7 @@ def normalize_node(raw: dict) -> dict:
         if dns:
             node["dns"] = dns
         node["ip"] = ip  # may be None
+        _preserve_extras(raw, node)
         return node
 
     check = str(raw.get("check") or "tcp").lower()
@@ -153,7 +154,36 @@ def normalize_node(raw: dict) -> dict:
         if port is None:
             raise ValueError("tcp proxy needs port")
         node["port"] = int(port)
+    _preserve_extras(raw, node)
     return node
+
+
+# Keys owned by normalize_node or mapped aliases. Everything else passes through.
+_NORMALIZED_KEYS = frozenset(
+    {
+        "id",
+        "type",
+        "label",
+        "notify",
+        "mapOrder",
+        "mapBand",
+        "group",
+        "hidden",
+        "dns",
+        "host",
+        "ip",
+        "check",
+        "url",
+        "port",
+    }
+)
+
+
+def _preserve_extras(raw: dict, node: dict[str, Any]) -> None:
+    for key, value in raw.items():
+        if key in _NORMALIZED_KEYS or key in node:
+            continue
+        node[key] = value
 
 
 def normalize_inventory(data: dict) -> dict:

@@ -127,7 +127,7 @@ def collect_unifi(inv: dict | None, nodes: list[dict] | None = None) -> dict[str
             out["error"] = None
     except Exception as e:
         out["error"] = str(e)[:160]
-    known = _known_from(nodes or [])
+    known = known_from(nodes or [])
     out["discover"] = _discover(out, known)
     return out
 
@@ -148,7 +148,7 @@ def _project_system(system: dict) -> dict[str, Any]:
         model = MODEL_NAMES.get(short, short)
     mac = str(system.get("mac") or "").strip() or None
     if mac:
-        mac = _fmt_mac(mac)
+        mac = fmt_mac(mac)
     return {
         "name": str(system.get("name") or system.get("hostname") or "") or None,
         "model": model,
@@ -325,7 +325,7 @@ def _project_device(row: dict) -> dict[str, Any]:
         kind = "switch"
     elif any(x in kind for x in ("ugw", "udm", "ucg", "uxg", "gateway")):
         kind = "gateway"
-    mac = _fmt_mac(str(row.get("mac") or ""))
+    mac = fmt_mac(str(row.get("mac") or ""))
     ip = str(row.get("ip") or row.get("ipAddress") or row.get("ip_address") or "") or None
     return {
         "id": str(row.get("id") or row.get("mac") or name),
@@ -347,13 +347,13 @@ def _project_client(row: dict) -> dict[str, Any]:
         "name": name,
         "hostname": str(row.get("hostname") or "") or None,
         "ip": str(row.get("ip") or row.get("ipAddress") or "") or None,
-        "mac": _fmt_mac(str(row.get("mac") or "")),
+        "mac": fmt_mac(str(row.get("mac") or "")),
         "wireless": wireless,
         "network": str(row.get("network") or row.get("network_name") or "") or None,
     }
 
 
-def _known_from(nodes: list[dict]) -> dict[str, set[str]]:
+def known_from(nodes: list[dict]) -> dict[str, set[str]]:
     ips: set[str] = set()
     macs: set[str] = set()
     hosts: set[str] = set()
@@ -361,7 +361,7 @@ def _known_from(nodes: list[dict]) -> dict[str, set[str]]:
         if node.get("ip"):
             ips.add(str(node["ip"]).strip())
         if node.get("mac"):
-            macs.add(_fmt_mac(str(node["mac"])) or "")
+            macs.add(fmt_mac(str(node["mac"])) or "")
         for key in ("dns", "id", "label"):
             val = str(node.get(key) or "").strip().lower()
             if val:
@@ -383,14 +383,16 @@ def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
             {
                 "source": "unifi",
                 "kind": "gateway",
+                "type": "machine",
                 "label": label,
+                "host": None,
                 "ip": host,
                 "mac": unifi.get("mac"),
             }
         )
     for client in unifi.get("clients") or []:
         ip = str(client.get("ip") or "")
-        mac = _fmt_mac(str(client.get("mac") or "")) or ""
+        mac = fmt_mac(str(client.get("mac") or "")) or ""
         hostn = str(client.get("hostname") or client.get("name") or "").strip().lower()
         if ip and ip in known["ips"]:
             continue
@@ -406,7 +408,9 @@ def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
             {
                 "source": "unifi",
                 "kind": "client",
+                "type": "host",
                 "label": client.get("name") or ip or mac,
+                "host": client.get("hostname") or None,
                 "ip": ip or None,
                 "mac": mac or None,
                 "wireless": bool(client.get("wireless")),
@@ -417,7 +421,7 @@ def _discover(unifi: dict, known: dict[str, set[str]]) -> list[dict]:
     return out
 
 
-def _fmt_mac(raw: str) -> str | None:
+def fmt_mac(raw: str) -> str | None:
     hexes = "".join(ch for ch in raw.lower() if ch in "0123456789abcdef")
     if len(hexes) != 12:
         return raw.lower() if raw else None

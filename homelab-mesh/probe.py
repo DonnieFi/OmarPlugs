@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from discover_lib import collect_discover, known_targets, merge_discover
 from history_lib import (
     append_probe_sample,
     last_counters,
@@ -24,10 +25,11 @@ from history_lib import (
     set_node_meta,
 )
 from groups_lib import attach_status, group_nodes, leftover_rows
-from inventory_lib import load_inventory, nodes_by_type, probe_target
+from inventory_lib import load_inventory, probe_target
 from notify_lib import process_probe_glance
 from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
 from unifi_lib import collect_unifi
+from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
     collect_machine,
     dns_time_ms,
@@ -42,9 +44,12 @@ from telemetry_lib import (
 )
 
 HERE = Path(__file__).resolve().parent
-INVENTORY = inventory_path() if inventory_path().is_file() else HERE / "inventory.json"
 PING_TIMEOUT_S = 1.5
 HTTP_TIMEOUT_S = 2.0
+
+
+def inventory_file() -> Path:
+    return inventory_path() if inventory_path().is_file() else HERE / "inventory.json"
 
 
 def now_iso() -> str:
@@ -52,7 +57,7 @@ def now_iso() -> str:
 
 
 def ping_host(host: str) -> tuple[str, float | None]:
-    """ICMP ping → (status, rtt_ms). unknown if probe can't run."""
+    """ICMP ping → (status, rtt_ms). unknown if probe can't run or DNS misses."""
     if not host:
         return "unknown", None
     try:
@@ -65,6 +70,9 @@ def ping_host(host: str) -> tuple[str, float | None]:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return "unknown", None
     out = (proc.stdout or "") + (proc.stderr or "")
+    low = out.lower()
+    if any(s in low for s in ("name or service not known", "temporary failure", "unknown host", "cannot resolve")):
+        return "unknown", None
     if proc.returncode != 0:
         return "down", None
     m = re.search(r"time[=<]([0-9.]+)\s*ms", out, re.I)
@@ -77,6 +85,8 @@ def ping_host(host: str) -> tuple[str, float | None]:
 
 
 def check_tcp(host: str, port: int) -> str:
+    if not host or not port:
+        return "down"
     try:
         with socket.create_connection((host, int(port)), timeout=HTTP_TIMEOUT_S):
             return "up"
@@ -88,7 +98,7 @@ def check_http(url: str) -> str:
     try:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-            return "up" if 200 <= int(resp.status) < 500 else "down"
+            return "up" if 200 <= int(resp.status) < 400 else "down"
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
         return "down"
 
@@ -125,6 +135,8 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
         }
     if report.get("uptime_s") is not None:
         row["uptime_s"] = report["uptime_s"]
+    if report.get("talkers"):
+        row["talkers"] = report["talkers"]
     prev = last_counters(hist, row["id"])
     rates = rates_from(prev, prev.get("ts_epoch") if prev else None, report, ts_now)
     if rates:
@@ -142,7 +154,7 @@ def probe_proxy_node(node: dict) -> dict:
     if check == "http":
         timing = http_timing(url or "")
         code = timing.get("http_code")
-        row["status"] = "up" if code and 200 <= int(code) < 500 else "down"
+        row["status"] = "up" if code and 200 <= int(code) < 400 else "down"
         if timing:
             row["connect_ms"] = timing["connect_ms"]
             row["ttfb_ms"] = timing["ttfb_ms"]
@@ -207,65 +219,114 @@ def cmd_wol(target: str) -> int:
     return 0 if ok else 1
 
 
+def cmd_speedtest(target: str) -> int:
+    """One-shot curl throughput, then iperf3 if that binary is already on the host."""
+    try:
+        inv = load_inventory(inventory_file())
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"inventory: {e}", "method": None}))
+        return 1
+    url = resolve_speedtest_url(inv)
+    host = None
+    ssh_user = None
+    node_id = str(target or "").strip()
+    if node_id:
+        for n in inv.get("nodes") or []:
+            if str(n.get("id") or "") == node_id:
+                host, _port, _url = probe_target(n)
+                raw_user = n.get("sshUser")
+                ssh_user = str(raw_user) if raw_user else None
+                break
+        if not host:
+            snap = load_json_or(snapshot_path(), {}) or {}
+            for row in snap.get("machines") or []:
+                if str(row.get("id") or "") == node_id and row.get("host"):
+                    host = str(row["host"])
+                    break
+    result = run_speedtest(url=url, host=host, ssh_user=ssh_user)
+    if node_id:
+        result["id"] = node_id
+    print(json.dumps(result))
+    return 0 if result.get("ok") else 1
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "wol":
         return cmd_wol(sys.argv[2] if len(sys.argv) > 2 else "")
-    with probe_lock() as acquired:
-        if not acquired:
-            print(json.dumps({"error": "another probe is still running"}, indent=2))
-            return 1
-        run_probe(write_stdout=True)
-        return 0
+    if len(sys.argv) > 1 and sys.argv[1] == "speedtest":
+        args = sys.argv[2:]
+        target = args[1] if len(args) >= 2 and args[0] == "--id" else (args[0] if args else "")
+        return cmd_speedtest(target)
+    payload = run_probe(write_stdout=True)
+    return 1 if payload.get("error") else 0
 
 
 def run_probe(*, write_stdout: bool = True) -> dict:
+    with probe_lock() as acquired:
+        if not acquired:
+            err = {"error": "another probe is still running"}
+            if write_stdout:
+                print(json.dumps(err, indent=2))
+            return err
+        return _run_probe_locked(write_stdout=write_stdout)
+
+
+def _run_probe_locked(*, write_stdout: bool = True) -> dict:
     try:
-        inv = load_inventory(INVENTORY)
+        inv = load_inventory(inventory_file())
     except Exception as e:
         err = {"error": f"inventory: {e}"}
         if write_stdout:
             print(json.dumps(err, indent=2))
         return err
     nodes = inv.get("nodes") or []
-    grouped = nodes_by_type(nodes)
+    dash = group_nodes(nodes)
     hist = load_history()
     ts_now = time.time()
     with ThreadPoolExecutor(max_workers=8) as pool:
-        machines_f = [pool.submit(probe_machine_node, x, hist, ts_now) for x in grouped["machines"]]
-        lan_f = [pool.submit(probe_rtt_node, x) for x in grouped["lan"]]
-        proxies_f = [pool.submit(probe_proxy_node, x) for x in grouped["proxies"]]
+        machines_f = [pool.submit(probe_machine_node, x, hist, ts_now) for x in dash["machines"]]
+        # Hosts and proxies that are service members still need a probe for group lights.
+        proxy_nodes = [n for n in nodes if str(n.get("type") or "") == "proxy"]
+        host_nodes = [n for n in nodes if str(n.get("type") or "") == "host"]
+        all_host_f = [pool.submit(probe_rtt_node, x) for x in host_nodes]
+        proxies_f = [pool.submit(probe_proxy_node, x) for x in proxy_nodes]
         meta_f = pool.submit(lan_meta, nodes, ts_now)
         unifi_f = pool.submit(collect_unifi, inv, nodes)
+        discover_f = pool.submit(collect_discover)
         machines = [f.result() for f in machines_f]
-        lan = [f.result() for f in lan_f]
+        host_rows = [f.result() for f in all_host_f]
         proxies = [f.result() for f in proxies_f]
         meta = meta_f.result()
         try:
             unifi = unifi_f.result()
         except Exception as e:
             unifi = {"ok": False, "auth": "none", "error": str(e)[:160], "devices": [], "clients": [], "discover": []}
+        try:
+            found = discover_f.result()
+        except Exception:
+            found = []
     by_id: dict[str, dict] = {}
-    for row in machines + lan + proxies:
+    for row in machines + host_rows + proxies:
         by_id[str(row.get("id") or "")] = row
-    dash = group_nodes(nodes)
     quiet_lan, quiet_proxies = leftover_rows(nodes, by_id, dash["grouped_ids"])
     payload = {
         "as_of": now_iso(),
         "machines": machines,
-        "lan": lan,
-        "proxies": proxies,
+        "lan": quiet_lan,
+        "proxies": quiet_proxies,
         "groups": attach_status(dash, by_id),
         "quiet_lan": quiet_lan,
         "quiet_proxies": quiet_proxies,
         "lan_meta": meta,
         "unifi": unifi,
+        "discover": merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist)),
     }
     ts = payload["as_of"]
     for row in machines:
         counters = row.pop("_counters", None)
         if counters:
             set_last_counters(hist, row["id"], counters)
-    for row in machines + lan:
+    for row in machines + host_rows:
         append_probe_sample(
             hist,
             str(row.get("id") or ""),
@@ -282,8 +343,8 @@ def run_probe(*, write_stdout: bool = True) -> dict:
             rtt_ms=row.get("ttfb_ms", row.get("connect_ms")),
             ts=ts,
         )
-    remember_macs(hist, [r for r in machines + lan if r.get("status") == "up"])
-    for row in machines + lan:
+    remember_macs(hist, [r for r in machines + host_rows if r.get("status") == "up"])
+    for row in machines + host_rows:
         meta_row = node_meta(hist, row["id"])
         if meta_row.get("mac"):
             row["mac"] = meta_row["mac"]

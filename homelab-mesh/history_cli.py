@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 import sys
 
-from history_lib import load_history, sparkline_values
+from history_lib import load_history, sparkline_payload
 
 
 def cmd_sparkline(node_id: str, n: int) -> int:
-    hist = load_history()
-    vals = sparkline_values(hist, node_id, n)
-    json.dump({"id": node_id, "values": vals}, sys.stdout)
+    json.dump(sparkline_payload(load_history(), node_id, n), sys.stdout)
     sys.stdout.write("\n")
     return 0
 

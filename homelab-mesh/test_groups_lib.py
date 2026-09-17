@@ -53,12 +53,41 @@ def test_attach_status_degraded() -> None:
     assert partial[0]["status"] == "degraded"
 
 
+def test_attach_status_all_unknown_not_down() -> None:
+    out = attach_status(
+        {"services": [{"id": "svc-x", "key": "x", "label": "X", "member_ids": ["a", "b"], "roles": ["host", "443"]}]},
+        {"a": {"status": "unknown"}, "b": {"status": "down"}},
+    )
+    assert out[0]["status"] == "degraded"
+    all_down = attach_status(
+        {"services": [{"id": "svc-x", "key": "x", "label": "X", "member_ids": ["a", "b"], "roles": ["host", "443"]}]},
+        {"a": {"status": "down"}, "b": {"status": "down"}},
+    )
+    assert all_down[0]["status"] == "down"
+
+
 def test_normalize_keeps_group() -> None:
     n = normalize_node(
         {"id": "ha.lan", "type": "host", "label": "Home Assistant", "dns": "ha.lan", "group": "ha"}
     )
     assert n["group"] == "ha"
     assert node_group_key(n) == "ha"
+
+
+def test_normalize_keeps_ssh_user_and_telemetry() -> None:
+    n = normalize_node(
+        {
+            "id": "aka",
+            "type": "machine",
+            "label": "aka",
+            "dns": "aka.lan",
+            "ip": None,
+            "sshUser": "red",
+            "telemetry": False,
+        }
+    )
+    assert n["sshUser"] == "red"
+    assert n["telemetry"] is False
 
 
 def test_leftover_skips_grouped() -> None:
@@ -75,6 +104,8 @@ def test_leftover_skips_grouped() -> None:
 if __name__ == "__main__":
     test_inventory_groups()
     test_attach_status_degraded()
+    test_attach_status_all_unknown_not_down()
     test_normalize_keeps_group()
+    test_normalize_keeps_ssh_user_and_telemetry()
     test_leftover_skips_grouped()
     print("ok")

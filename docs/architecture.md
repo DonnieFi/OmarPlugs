@@ -6,18 +6,29 @@ This document defines the sidecar formats the panel, probe, and daemon share. Th
 
 ## Config paths
 
-All user-writable state lives under:
+**Plugin install** (code + shipped defaults):
 
 `~/.config/omarchy/plugins/<manifest.id>/` (e.g. `donnie.homelab-mesh`)
+
+| File | Purpose |
+|------|---------|
+| `inventory.default.json` | Localhost starter shipped in git. Copied once; never written at runtime |
+| `Panel.qml`, collectors, … | Plugin code |
+
+**Runtime state** (`plugin_paths.state_dir()`):
+
+`~/.local/state/lanarchy/` (or `$XDG_STATE_HOME/lanarchy`)
 
 | File | Purpose |
 |------|---------|
 | `inventory.json` | v2 node list (source of truth for probes + UI). Untracked; seeded from `inventory.default.json` |
 | `history.json` | Ring buffer of RTT samples and status events |
 | `notify-state.json` | Ephemeral fail-streak counters (rebuilt from history on miss) |
+| `snapshot.json` | Last glance JSON the panel reads |
+| `seen-devices.json` | New-device arrival baseline |
 | `unifi-secrets.json` | Optional UniFi API key or user/pass. Never committed; never copied into inventory |
 
-Repo-shipped `inventory.default.json` is a localhost starter that lives in the plugin install directory (same tree as `Panel.qml`). It is copied to `inventory.json` on first run and never written to again. Sidecars (`snapshot.json`, `history.json`, …) are written next to it.
+State must not live in the plugin tree: the shell watches that directory and hot-reloads on every write. Pre-0.4 sidecars still under the plugin dir are migrated out once by `migrate_state_out_of_plugin_dir()`.
 
 ## Inventory v2 extension
 
@@ -163,9 +174,9 @@ Panel merges glance rows with inventory `notify` for toggles in map and Setup.
 
 ## Collector daemon
 
-`daemon.py` is the single writer. `fcntl` flock on `.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `snapshot.json`.
+`daemon.py` is the single writer. `fcntl` flock on `state_dir()/.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `state_dir()/snapshot.json`.
 
-The panel **starts** the daemon on open (idempotent via flock) and **only reads** `snapshot.json` (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` / `speedtest` CLI.
+The panel **starts** the daemon on open (idempotent via flock) and **only reads** that snapshot (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` / `speedtest` CLI.
 
 ### Probe gate (`gate_lib.py`)
 

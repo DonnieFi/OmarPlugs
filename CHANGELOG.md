@@ -10,6 +10,7 @@ The version in `manifest.json` is the single source of truth.
 - Naming / OS badges / new-device arrivals; quieter history events; sparkline batch; discovered-machine telemetry
 - Panel map: left-to-right lanes, honest measured traffic, health/mute agreement, in-place rename/remove
 - Starter `this-box` enables local telemetry so Flow has real rates on first install
+- README / architecture / marketplace `preview.png` refreshed for the 0.4.0 panel (map · list · setup)
 
 ## 0.3.13 — 2026-09-17
 

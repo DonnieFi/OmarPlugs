@@ -8,7 +8,8 @@
 
 - `Panel.qml` + Python collectors — the plugin
 - `README.md` — Install · Usage · Configure · Remove
-- `docs/` — architecture and screenshots
+- `docs/` — architecture and panel-only screenshots (`docs/screenshots/*-0.X.Y.png`, keep in sync with `preview.png`)
+- Runtime state is `~/.local/state/lanarchy/`, not the plugin tree — see `plugin_paths.state_dir()`
 - Dotfiles (`.agents/`, `.beads/`, `.cursor/`, …) are gitignored — do not commit them
 
 ## Work

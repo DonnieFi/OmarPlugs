@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="docs/screenshots/map-0.3.12.png" width="900" alt="Lanarchy map: machines to Caddy hub to services, leftover LAN cluster, theme-coloured borders">
+<img src="docs/screenshots/map-0.4.0.png" width="900" alt="Lanarchy Flow map: machines → Caddy → services → gateway → internet, with measured traffic pulses and OS badges">
 
 # Lanarchy
 
 **Homelab status in the Omarchy bar — who is up, what sits behind Caddy, and what just appeared on the LAN.**
 
-No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` names as reverse-proxy hosts.
+No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` names as reverse-proxy hosts. Map reads left to right; Flow shows measured rates, not decoration.
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
@@ -33,13 +33,13 @@ Lanarchy keeps that straight:
 | **proxy** | Caddy health URL | HTTP 2xx/3xx or TCP check |
 
 <div align="center">
-<img src="docs/screenshots/list-0.3.12.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
+<img src="docs/screenshots/list-0.4.0.png" width="520" alt="Lanarchy list dash: machines with rates and sparklines, UniFi gateway, grouped services with colour lights">
 </div>
 
-List is the default dash (Pulse-style colour lights). Map is the letterbox of the same mesh. Setup is where you **Search network** instead of hand-entering addresses.
+List is the default dash (Pulse-style colour lights). Map / Flow is the letterbox of the same mesh — solid edges have telemetry, dashed do not. Setup is where you **Search network** instead of hand-entering addresses.
 
 <div align="center">
-<img src="docs/screenshots/setup-0.3.12.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
+<img src="docs/screenshots/setup-0.4.0.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
 </div>
 
 ---
@@ -78,11 +78,12 @@ omarchy-shell shell summon donnie.homelab-mesh
 ### Optional UniFi
 
 ```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/donnie.homelab-mesh/unifi-secrets.json
+mkdir -p ~/.local/state/lanarchy
+cp unifi-secrets.json.example ~/.local/state/lanarchy/unifi-secrets.json
 # UNIFI_KEY=...   or JSON {"apiKey":"..."}
 ```
 
-Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search network** to build your mesh.
+Shipped `inventory.default.json` is a tiny localhost starter (local telemetry on so Flow has rates on first install). On first run it is copied to `~/.local/state/lanarchy/inventory.json`. Use **Setup → Search network** to build your mesh.
 
 `unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
 
@@ -93,10 +94,11 @@ Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search net
 | Action | How |
 |--------|-----|
 | Open / close | Click the castle-socket bar icon · Esc closes |
-| List / Map | Tabs or `l` / `m` |
+| List / Map / Flow | Tabs or `l` / `m` / `a` |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
-| Animate map traffic | **Flow** tab (map) or `a` — persists as `settings.mapAnimate` |
+| Animate map traffic | **Flow** tab or `a` — persists as `settings.mapAnimate` |
+| Rename selected card | Double-click the name, or **Rename** in detail |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
 | Map select / notify | Arrows · Enter toggles ALERT/MUTE |
@@ -191,14 +193,15 @@ Bar widget setting (also in `shell.json` under the widget entry):
 |-----|---------|-------|
 | `refreshIntervalSec` | `15` | 5–120 |
 
-Inventory and sidecars live in the plugin install directory (`~/.config/omarchy/plugins/donnie.homelab-mesh/` after `plugin add`):
+Runtime state lives under `~/.local/state/lanarchy/` (or `$XDG_STATE_HOME/lanarchy`). It is **not** written into the plugin install tree — that would hot-reload the panel on every probe.
 
 | File | Purpose |
 |------|---------|
-| `inventory.json` | v2 nodes + optional `settings` / `edges` |
+| `inventory.json` | v2 nodes + optional `settings` / `edges` (seeded from shipped `inventory.default.json`) |
 | `history.json` | RTT sparklines / events |
 | `notify-state.json` | Fail streaks + unknown-neighbor mute |
 | `snapshot.json` | Last glance (daemon / probe) |
+| `seen-devices.json` | New-device arrival baseline |
 | `unifi-secrets.json` | API key (optional) |
 
 Useful `inventory.json` settings:
@@ -209,6 +212,7 @@ Useful `inventory.json` settings:
   "settings": {
     "failStreakThreshold": 3,
     "unknownNeighborNotify": true,
+    "newDeviceNotify": true,
     "unifi": { "url": "https://192.168.1.1", "site": "default" },
     "speedtestUrl": "https://files.lan/"
   },
@@ -234,8 +238,6 @@ The collector is gated so a closed panel is not a permanent background scan:
 Open the panel and you always get the full `probeIntervalSec` pace. A desktop with
 no battery and no `homeGatewayMac` behaves exactly as before.
 
-Empty inventory writes are refused. Setup/form saves go through `inventory_cli.py` only when you act — nothing silent.
-
 ---
 
 ## Remove
@@ -244,7 +246,7 @@ Empty inventory writes are refused. Setup/form saves go through `inventory_cli.p
 omarchy plugin remove donnie.homelab-mesh
 ```
 
-That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/donnie.homelab-mesh/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
+That disables and removes the plugin checkout/symlink. Runtime state under `~/.local/state/lanarchy/` is left alone — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot, seen devices).
 
 ---
 
@@ -274,7 +276,7 @@ One-shot collector (debug):
 
 ```bash
 cd ~/.config/omarchy/plugins/donnie.homelab-mesh
-python3 probe.py                 # glance JSON on stdout + snapshot
+python3 probe.py                 # glance JSON on stdout + writes ~/.local/state/lanarchy/snapshot.json
 python3 probe.py wol <id|mac>
 python3 probe.py speedtest --id <machine>
 python3 inventory_cli.py dump
@@ -334,10 +336,11 @@ The choice is stored in `inventory.json` under `settings.barDisplay`.
 | **Castle-socket** | Bar + header mark; alarms when glance has downs |
 | **● / ○** | Filled = up/down known; hollow = unknown / probing |
 | **Green / yellow / red** | Theme status on **both** fill and border (up / degraded / down) — no separate “hot RTT” wash |
+| **LINUX / macOS / UNIX?** | OS badge on machine cards (see [Knowing what a box is](#knowing-what-a-box-is)) |
 | **reverse proxy** subline | Caddy (or first proxy group) — LAN service edges hub here |
-| **router** subline | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
+| **default gateway / router** | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
 | **LIVE · …** pill | Aggregate health + `as_of` |
-| **Map / List** | View tabs |
+| **Map / List / Flow** | View tabs — Flow is measured traffic on the same letterbox |
 | **ALERT / MUTE** | Per-node notify on map cards |
 | **Sparklines** | Recent RTT from history |
 | **machine / host / proxy** chips | Setup inventory type |
@@ -371,6 +374,6 @@ Version lives in **`manifest.json`** only. Releases bump it, add a [CHANGELOG.md
 
 ## Credits
 
-Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix. Discover and glance UX are Lanarchy’s own.
+Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix; 0.4.0 map/Flow, naming, OS badges, arrivals, and collector gating landed with the same hand. Discover and glance UX are Lanarchy’s own.
 
 MIT — see [LICENSE](LICENSE).

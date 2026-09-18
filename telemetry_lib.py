@@ -14,7 +14,9 @@ HTTP_TIMEOUT_S = 4.0
 C_LOCALE = dict(os.environ, LC_ALL="C", LANG="C")
 
 # One remote shell prints link lines (L), /proc/net/dev rows (D), uptime (U),
-# and ss -tunH sockets (T). Counts only; no -p, so no extra privilege.
+# and ss -tunHn sockets (T). Counts only; no -p, so no extra privilege.
+# -n matters: without it ss reverse-resolves every peer, which on a busy box
+# outruns SSH_TIMEOUT_S and costs us the entire report, not just the counts.
 REMOTE_SCRIPT = r"""
 for i in /sys/class/net/*; do
   n=$(basename "$i")
@@ -29,8 +31,9 @@ for i in /sys/class/net/*; do
 done
 tail -n +3 /proc/net/dev | sed 's/^/D /'
 sed 's/^/U /' /proc/uptime
+echo "O $(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
 if command -v ss >/dev/null 2>&1; then
-  ss -tunH 2>/dev/null | sed 's/^/T /'
+  ss -tunHn 2>/dev/null | sed 's/^/T /'
 fi
 true
 """
@@ -46,6 +49,33 @@ def _run(args: list[str], timeout: float, stdin: str | None = None) -> str:
         return ""
 
 
+def default_gateway() -> dict | None:
+    """The real next hop for this machine: {ip, mac, iface}.
+
+    Every box on a LAN reaches the internet through this address. Drawing a
+    topology without it means inventing one, which is what happens when the hub
+    falls back to "the first machine in the list".
+    """
+    out = _run(["ip", "-4", "route", "show", "default"], 2)
+    fields = (out or "").split()
+    try:
+        ip = fields[fields.index("via") + 1]
+    except (ValueError, IndexError):
+        return None
+    iface = ""
+    if "dev" in fields:
+        try:
+            iface = fields[fields.index("dev") + 1]
+        except IndexError:
+            iface = ""
+    mac = None
+    neigh = _run(["ip", "-4", "neigh", "show", ip], 2)
+    m = re.search(r"lladdr\s+((?:[0-9a-f]{2}:){5}[0-9a-f]{2})", neigh or "", re.I)
+    if m:
+        mac = m.group(1).lower()
+    return {"ip": ip, "mac": mac, "iface": iface}
+
+
 def local_addresses() -> set[str]:
     out: set[str] = set()
     try:
@@ -55,6 +85,25 @@ def local_addresses() -> set[str]:
             for a in entry.get("addr_info", []):
                 if a.get("local"):
                     out.add(str(a["local"]))
+    except (ValueError, TypeError):
+        pass
+    return out
+
+
+def local_macs() -> set[str]:
+    """Every MAC on this machine, including the interfaces it is not using.
+
+    A laptop with wifi and ethernet is two entries in its own ARP-adjacent view,
+    and announcing yourself as a new device on your own network is absurd.
+    """
+    out: set[str] = set()
+    try:
+        import json
+
+        for entry in json.loads(_run(["ip", "-j", "link"], 2) or "[]"):
+            mac = str(entry.get("address") or "").strip().lower()
+            if len(mac) == 17 and mac != "00:00:00:00:00:00":
+                out.add(mac)
     except (ValueError, TypeError):
         pass
     return out
@@ -119,6 +168,8 @@ def parse_machine_report(text: str) -> dict[str, Any]:
     counters: dict[str, dict] = {}
     talker_lines: list[str] = []
     uptime = None
+    uname_s = ""
+    uname_r = ""
     for raw in (text or "").splitlines():
         line = raw.strip()
         if line.startswith("L "):
@@ -147,6 +198,11 @@ def parse_machine_report(text: str) -> dict[str, Any]:
                 uptime = None
         elif line.startswith("T "):
             talker_lines.append(line)
+        elif line.startswith("O "):
+            parts = line.split(None, 2)
+            if len(parts) >= 2:
+                uname_s = parts[1]
+                uname_r = parts[2] if len(parts) > 2 else ""
     active = {l["iface"] for l in links}
     rx = sum(c["rx"] for n, c in counters.items() if n in active)
     tx = sum(c["tx"] for n, c in counters.items() if n in active)
@@ -156,6 +212,10 @@ def parse_machine_report(text: str) -> dict[str, Any]:
         "tx_bytes": tx if active else None,
         "uptime_s": uptime,
     }
+    if uname_s:
+        out["uname_s"] = uname_s
+        if uname_r:
+            out["uname_r"] = uname_r
     talkers = parse_ss_talkers("\n".join(talker_lines))
     if talkers:
         out["talkers"] = talkers
@@ -249,8 +309,29 @@ def dns_time_ms(name: str) -> float | None:
     return (time.perf_counter() - t) * 1000
 
 
-def neighbors() -> list[dict]:
-    return parse_neigh(_run(["ip", "-j", "-4", "neigh"], 2))
+# Interfaces that are not the network the user means. A container bridge and a
+# libvirt bridge each have their own subnet full of neighbours, and treating
+# them as "the lab" fills the map with things that are not on the LAN at all.
+VIRTUAL_IFACE_PREFIXES = ("docker", "br-", "virbr", "veth", "lxc", "lxd", "podman",
+                          "cni", "flannel", "tailscale", "zt", "wg", "tun", "tap")
+
+
+def is_virtual_iface(name: object) -> bool:
+    n = str(name or "").strip().lower()
+    return bool(n) and n.startswith(VIRTUAL_IFACE_PREFIXES)
+
+
+def neighbors(include_virtual: bool = False) -> list[dict]:
+    """ARP neighbours on real interfaces.
+
+    Container and hypervisor bridges are excluded: their neighbours are not on
+    the network being mapped, and promoting them produced map cards for docker
+    and libvirt addresses.
+    """
+    rows = parse_neigh(_run(["ip", "-j", "-4", "neigh"], 2))
+    if include_virtual:
+        return rows
+    return [r for r in rows if not is_virtual_iface(r.get("iface"))]
 
 
 def parse_neigh(text: str) -> list[dict]:
@@ -265,7 +346,12 @@ def parse_neigh(text: str) -> list[dict]:
             state = r.get("state") or []
             if "FAILED" in state or "INCOMPLETE" in state:
                 continue
-            rows.append({"ip": str(r.get("dst")), "mac": str(r["lladdr"]).lower(), "state": state[0] if state else ""})
+            rows.append({
+                "ip": str(r.get("dst")),
+                "mac": str(r["lladdr"]).lower(),
+                "state": state[0] if state else "",
+                "iface": str(r.get("dev") or ""),
+            })
     except (ValueError, TypeError):
         pass
     return rows

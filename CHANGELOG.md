@@ -3,6 +3,14 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.0 — 2026-09-18
+
+- Runtime state under `$XDG_STATE_HOME/lanarchy` (no more plugin-tree hot-reload storm); shipped starter is `inventory.default.json`
+- Collector gate: home-network discover, battery/panel-closed backoff (`gate_lib`)
+- Naming / OS badges / new-device arrivals; quieter history events; sparkline batch; discovered-machine telemetry
+- Panel map: left-to-right lanes, honest measured traffic, health/mute agreement, in-place rename/remove
+- Starter `this-box` enables local telemetry so Flow has real rates on first install
+
 ## 0.3.13 — 2026-09-17
 
 - Map edges: bottom→top Visio ports, elbows in gutters (no lines through card centres)

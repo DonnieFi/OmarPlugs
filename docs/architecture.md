@@ -221,7 +221,7 @@ Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash
 
 ## UniFi
 
-Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `unifi-secrets.json`:
+Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `state_dir()/unifi-secrets.json`:
 
 Dotenv (`UNIFI_KEY=...`) or JSON (`{"apiKey":"..."}`). Cookie login: `UNIFI_USER` / `UNIFI_PASS`. Env fallbacks: `UNIFI_KEY`, `UNIFI_API_KEY`, `UNIFI_USER`, `UNIFI_PASS`, `UNIFI_URL`.
 

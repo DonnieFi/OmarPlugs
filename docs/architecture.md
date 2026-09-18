@@ -12,12 +12,12 @@ All user-writable state lives under:
 
 | File | Purpose |
 |------|---------|
-| `inventory.json` | v2 node list (source of truth for probes + UI) |
+| `inventory.json` | v2 node list (source of truth for probes + UI). Untracked; seeded from `inventory.default.json` |
 | `history.json` | Ring buffer of RTT samples and status events |
 | `notify-state.json` | Ephemeral fail-streak counters (rebuilt from history on miss) |
 | `unifi-secrets.json` | Optional UniFi API key or user/pass. Never committed; never copied into inventory |
 
-Repo-shipped `inventory.json` is a localhost starter that lives in the plugin install directory (same tree as `Panel.qml`). Sidecars (`snapshot.json`, `history.json`, …) are written next to it.
+Repo-shipped `inventory.default.json` is a localhost starter that lives in the plugin install directory (same tree as `Panel.qml`). It is copied to `inventory.json` on first run and never written to again. Sidecars (`snapshot.json`, `history.json`, …) are written next to it.
 
 ## Inventory v2 extension
 
@@ -166,6 +166,39 @@ Panel merges glance rows with inventory `notify` for toggles in map and Setup.
 `daemon.py` is the single writer. `fcntl` flock on `.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `snapshot.json`.
 
 The panel **starts** the daemon on open (idempotent via flock) and **only reads** `snapshot.json` (`FileView` + 2s reload). It does not spawn `probe.py` on a timer. `probe.py` remains the one-shot / `wol` / `speedtest` CLI.
+
+### Probe gate (`gate_lib.py`)
+
+The loop ticks every 2s but only probes when the gate allows it, so opening the
+panel takes effect at once instead of waiting out a long backoff:
+
+| Condition | Probe | Discover |
+|-----------|-------|----------|
+| Panel open, on the home network | `probeIntervalSec` | yes |
+| Away from the home gateway | yes, panel open only | **never** |
+| Home gateway unknown or unreadable | yes | **never** (fails closed) |
+| On battery, panel closed | `batteryIntervalSec` (300s) | no |
+| Mains, panel closed | `closedIntervalSec` if set, else `probeIntervalSec` | no |
+
+**Probe and discover are separate decisions.** Probing touches only the addresses
+already in the inventory. Discovery sweeps the attached subnet: mDNS, ARP, a TCP
+connect to 22 and 3389 on every neighbour, and an SSH attempt on whatever
+answers. That is the feature at home and is port-scanning strangers anywhere
+else, so it **fails closed**: no known home network means no sweep.
+
+`homeGatewayMac` is adopted on first run (trust on first use), because a gate
+that requires the user to look up a MAC before discovery works is a gate nobody
+switches on. Every later network is measured against it.
+
+Gateway MAC is cached 30s and battery state 10s so the 2s tick stays cheap.
+Unknown gateway (no default route yet) never pauses probing.
+
+### Seeding user state
+
+`inventory.json` is user state and stays untracked. The repo ships
+`inventory.default.json`; `plugin_paths.ensure_user_inventory()` copies it on
+first run only, and never over an existing file. This keeps `omarchy plugin
+update` (a `git pull`) from conflicting with an edited lab.
 
 Edge pulse uses `rx_bps` when present, else endpoint RTT.
 

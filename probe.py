@@ -49,7 +49,7 @@ HTTP_TIMEOUT_S = 2.0
 
 
 def inventory_file() -> Path:
-    return inventory_path() if inventory_path().is_file() else HERE / "inventory.json"
+    return inventory_path() if inventory_path().is_file() else HERE / "inventory.default.json"
 
 
 def now_iso() -> str:

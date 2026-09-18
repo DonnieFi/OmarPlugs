@@ -120,6 +120,60 @@ Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
 
 ---
 
+## New device alarm
+
+Lanarchy remembers every MAC it has seen. Hardware that shows up later is
+announced once and listed in a **NEW ON YOUR NETWORK** tray with its name,
+address, kind and arrival time, with **adopt** and **ignore**.
+
+| Rule | Why |
+|------|-----|
+| The first run records a baseline silently | Everything is new the first time you look; announcing it all is how a tripwire gets muted on day one |
+| A device must be seen twice | A one-off ARP entry is not an arrival |
+| Announced exactly once | Repeating it is nagging, not alerting |
+| Anything adopted or ignored is dropped | A device you have dealt with is not news |
+
+State lives in `~/.local/state/lanarchy/seen-devices.json`. Disable with
+`settings.newDeviceNotify: false`.
+
+---
+
+## Naming
+
+Lanarchy works the name out for you first, from the mDNS host record, reverse DNS,
+`hostname -s` over SSH, and UniFi client names when a key is configured. Sonos
+rooms, model serials and pairing ids are unpicked into something readable.
+
+When you disagree, rename it: select a card and press **Rename**, or edit **Label**
+in Setup. **The name is stored against the MAC, not the address**, because an
+address is a DHCP lease and will eventually belong to something else. It applies
+everywhere at once: map, list, Setup, detail and notifications. The discovered
+name is kept underneath as `discoveredLabel`.
+
+A node with no learnable MAC (routed or off-LAN) anchors to its address instead,
+which is the weaker option and the only one available for such a host.
+
+---
+
+## Knowing what a box is
+
+The machine card's top line names the platform instead of repeating the word
+"machine". Nothing extra is probed to work it out:
+
+| Source | Gives | Confidence |
+|--------|-------|------------|
+| `uname -s` over the telemetry hop | exact family plus release | certain |
+| Apple mDNS services (`_companion-link`, `_airplay`, ...) | macOS | likely |
+| UniFi `os_name` | family | likely |
+| ICMP TTL in the ping reply (64 / 128 / 255) | `UNIX` / `WINDOWS` / `APPLIANCE` | guess, shown with `?` |
+
+A TTL of 64 cannot separate Linux from macOS, so it reports `UNIX?` rather than
+picking one. With no evidence the card says `MACHINE`.
+
+Set `"role": "router"` on a node to label it `ROUTER` outright.
+
+---
+
 ## Configure
 
 Bar widget setting (also in `shell.json` under the widget entry):

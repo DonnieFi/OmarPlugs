@@ -46,6 +46,8 @@ A release is three things, together:
 2. add a `CHANGELOG.md` entry under that exact version
 3. update the version badge in `README.md`
 
+The running panel exposes that same version via `omarchy-shell lanarchy version`.
+
 A pull request that changes behaviour without a version bump is incomplete: the
 user cannot tell which build they are running, and a bug report cannot be tied
 to a release.

@@ -72,6 +72,8 @@ omarchy plugin validate ~/.config/omarchy/plugins/donnie.homelab-mesh
 Open:
 
 ```bash
+omarchy-shell lanarchy open
+# or
 omarchy-shell shell summon donnie.homelab-mesh
 ```
 
@@ -95,13 +97,14 @@ Shipped `inventory.default.json` is a tiny localhost starter (local telemetry on
 |--------|-----|
 | Open / close | Click the castle-socket bar icon · Esc closes |
 | List / Map / Flow | Tabs or `l` / `m` / `a` |
-| Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
+| Hide selected card | Detail **Hide** or `h` — demotes off the main map (still probed; List → **LAN**) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
-| Animate map traffic | **Flow** tab or `a` — persists as `settings.mapAnimate` |
+| Remove selected card | Detail **Remove** (confirm on second tap) — works for discovered boxes too |
 | Rename selected card | Double-click the name, or **Rename** in detail |
+| Animate map traffic | **Flow** tab or `a` — persists as `settings.mapAnimate` |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
-| Map select / notify | Arrows · Enter toggles ALERT/MUTE |
+| Map select / notify | Arrows · Enter toggles notify; muted hosts stay red on their card but do **not** alarm the bar |
 | Find hosts | Setup → **Search network** → **+ add** |
 
 ### What **Search network** does
@@ -238,6 +241,8 @@ The collector is gated so a closed panel is not a permanent background scan:
 Open the panel and you always get the full `probeIntervalSec` pace. A desktop with
 no battery and no `homeGatewayMac` behaves exactly as before.
 
+`homeGatewayMac` is adopted on first run (trust on first use). Every later network is measured against it; if the gate cannot tell where it is, discovery stays off.
+
 ---
 
 ## Remove
@@ -266,7 +271,23 @@ That disables and removes the plugin checkout/symlink. Runtime state under `~/.l
 
 ## IPC
 
+The panel registers as target **`lanarchy`** (not the plugin id — the host already claims that). Plugin-id summon still works for open/close.
+
 ```bash
+omarchy-shell lanarchy open
+omarchy-shell lanarchy close
+omarchy-shell lanarchy toggle
+omarchy-shell lanarchy map
+omarchy-shell lanarchy list
+omarchy-shell lanarchy setup
+omarchy-shell lanarchy refresh
+omarchy-shell lanarchy version          # → 0.4.0 from manifest.json
+omarchy-shell lanarchy status           # → downs / muted / tracked · as_of
+omarchy-shell lanarchy barDisplay downs
+omarchy-shell lanarchy rename <mac> "Kitchen"
+omarchy-shell lanarchy ignore <mac>
+omarchy-shell lanarchy restore <mac>
+
 omarchy-shell shell summon donnie.homelab-mesh
 omarchy-shell shell hide donnie.homelab-mesh
 omarchy-shell shell rescanPlugins
@@ -300,8 +321,12 @@ python3 history_cli.py sparkline --id <node>
 | A dim lane | An endpoint's health check is down. The bytes are still real |
 
 Local telemetry (`/proc/net/dev`, sysfs) needs no SSH and no credentials, so the box
-running the panel always has live rates. Other machines need SSH with `BatchMode`;
-without it their edges stay still, which is the honest answer rather than a fake pace.
+running the panel always has live rates (the shipped starter leaves that on for
+`this-box`). Other machines need SSH with `BatchMode`; a refusal is remembered for
+about ten minutes so a closed port does not burn the whole probe interval every
+cycle. Without a usable key their edges stay dashed/still — the honest answer
+rather than a fake pace. Discovered machines with an open login port get the same
+counter read curated nodes get.
 
 Set `"telemetry": false` on a node to opt it out.
 
@@ -321,7 +346,7 @@ Right-click the icon to pick what it shows:
 | `none` | icon only |
 
 The mark itself still colours green / amber / red and alarms when a node goes down.
-The choice is stored in `inventory.json` under `settings.barDisplay`.
+**Muted** nodes stay visible and red on their own card, but they are excluded from the alarm count (so silencing a flaky box clears the bar). The choice is stored in `inventory.json` under `settings.barDisplay`.
 
 ---
 

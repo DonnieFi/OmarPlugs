@@ -63,7 +63,7 @@ Per-node optional fields:
 | `hidden` | boolean | `false` | Drop from leftover LAN even when the LAN toggle is on |
 | `mapBand` | string | derived from `type` | Override band key for letterbox layout (`machine`, `host`, `proxy`, `router`) |
 | `mapOrder` | integer | list order | Stable sort within band |
-| `mapHidden` | boolean | `false` | Demote from the main map into the LAN bucket (still probed; List → LAN can **Show** it back) |
+| `mapHidden` | boolean | `false` | Hide from the main map (still probed; List → **LAN** → **Show**) |
 | `zone` | string | internal | Set `external` to place the service on the map's right-hand WAN rail |
 | `httpReachable` | boolean | `false` | HTTP proxy: any response code (incl. 401/404) counts as up — for workers without a public health path |
 

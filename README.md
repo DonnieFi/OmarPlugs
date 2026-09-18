@@ -181,44 +181,6 @@ picking one. With no evidence the card says `MACHINE`.
 
 Set `"role": "router"` on a node to label it `ROUTER` outright.
 
-## What the map's motion means
-
-**Flow is measured throughput, not decoration.** Every packet on the map comes from
-`rates` (`rx_bps` / `tx_bps`) read off the interface counters:
-
-| You see | It means |
-|---------|----------|
-| Packets streaming | Real measured bytes. Count and speed both scale with the rate |
-| Two lanes, different shades | rx walks the route forwards, tx walks it back |
-| A dashed line | **No telemetry for either endpoint.** Not measured, as opposed to idle |
-| A solid line with no packets | Measured, and genuinely idle |
-| One card selected | Only that host's packets move, so a shared lane can be read per host |
-| A dim lane | An endpoint's health check is down. The bytes are still real |
-
-Local telemetry (`/proc/net/dev`, sysfs) needs no SSH and no credentials, so the box
-running the panel always has live rates. Other machines need SSH with `BatchMode`;
-without it their edges stay still, which is the honest answer rather than a fake pace.
-
-Set `"telemetry": false` on a node to opt it out.
-
----
-
-## The bar readout
-
-The castle mark carries a number, so the bar answers "is the lab fine?" without a click.
-Right-click the icon to pick what it shows:
-
-| Mode | Shows |
-|------|-------|
-| `downs` (default) | `3↓` when something is down, `2!` when degraded, `✓` when all is well |
-| `upfrac` | `12/14` up over tracked |
-| `worstrtt` | the slowest node's RTT |
-| `hosts` | `↓ down ↑ up`, summed over hosts with telemetry |
-| `none` | icon only |
-
-The mark itself still colours green / amber / red and alarms when a node goes down.
-The choice is stored in `inventory.json` under `settings.barDisplay`.
-
 ---
 
 ## Configure
@@ -318,6 +280,46 @@ python3 probe.py speedtest --id <machine>
 python3 inventory_cli.py dump
 python3 history_cli.py sparkline --id <node>
 ```
+
+---
+
+## What the map's motion means
+
+**Flow is measured throughput, not decoration.** Every packet on the map comes from
+`rates` (`rx_bps` / `tx_bps`) read off the interface counters:
+
+| You see | It means |
+|---------|----------|
+| Packets streaming | Real measured bytes. Count and speed both scale with the rate |
+| Two lanes, different shades | rx walks the route forwards, tx walks it back |
+| A dashed line | **No telemetry for either endpoint.** Not measured, as opposed to idle |
+| A solid line with no packets | Measured, and genuinely idle |
+| One card selected | Only that host's packets move, so a shared lane can be read per host |
+| A dim lane | An endpoint's health check is down. The bytes are still real |
+
+Local telemetry (`/proc/net/dev`, sysfs) needs no SSH and no credentials, so the box
+running the panel always has live rates. Other machines need SSH with `BatchMode`;
+without it their edges stay still, which is the honest answer rather than a fake pace.
+
+Set `"telemetry": false` on a node to opt it out.
+
+---
+
+## The bar readout
+
+The castle mark carries a number, so the bar answers "is the lab fine?" without a click.
+Right-click the icon to pick what it shows:
+
+| Mode | Shows |
+|------|-------|
+| `downs` (default) | `3↓` when something is down, `2!` when degraded, `✓` when all is well |
+| `upfrac` | `12/14` up over tracked |
+| `worstrtt` | the slowest node's RTT |
+| `hosts` | `↓ down ↑ up`, summed over hosts with telemetry |
+| `none` | icon only |
+
+The mark itself still colours green / amber / red and alarms when a node goes down.
+The choice is stored in `inventory.json` under `settings.barDisplay`.
 
 ---
 

@@ -120,6 +120,15 @@ Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
 
 ---
 
+**What makes something a `machine`:** it answers on a login port (22 or 3389), or
+mDNS says so. mDNS alone is not enough, because plenty of real boxes never publish
+`_ssh` while plenty of appliances publish service records that look host-like.
+
+**+ Add all machines** adds every found `machine` in a single inventory write, which
+is the fast way to bootstrap. **+ Add everything** also takes the `host` rows, which
+on a busy LAN includes TVs and phones, so it is the deliberate option rather than
+the recommended one.
+
 ## New device alarm
 
 Lanarchy remembers every MAC it has seen. Hardware that shows up later is

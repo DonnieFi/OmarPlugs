@@ -366,8 +366,9 @@ The mark itself still colours green / amber / red and alarms when a node goes do
 | **default gateway / router** | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
 | **LIVE · …** pill | Aggregate health + `as_of` |
 | **Map / List / Flow** | View tabs — Flow is measured traffic on the same letterbox |
-| **ALERT / MUTE** | Per-node notify on map cards |
-| **Sparklines** | Recent RTT from history |
+| **Notify on / off** | Per-node alerts; muted hosts do not alarm the bar |
+| **Hide / Show on map** | Demote a card off the letterbox without stopping probes |
+| **Sparklines** | Recent RTT from history (batched from the snapshot) |
 | **machine / host / proxy** chips | Setup inventory type |
 | **unifi · box / mdns / arp** | Discover source on Found rows |
 

@@ -32,6 +32,23 @@ omarchy plugin validate .
 
 After QML changes: `omarchy-restart-shell`, then summon and smoke the panel.
 
+### Releasing
+
+**Every user-visible change bumps `manifest.json` `version`, in the same commit.**
+`manifest.json` is the single source of truth for which build a user has, so a
+change that ships without it leaves no way to tell one build from another.
+
+A release is three things, together:
+
+1. bump `version` in `manifest.json` (semver: `0.3.13` → `0.4.0`, not `0.3.14`,
+   when behaviour changes rather than a bug being fixed)
+2. add a `CHANGELOG.md` entry under that exact version
+3. update the version badge in `README.md`
+
+A pull request that changes behaviour without a version bump is incomplete: the
+user cannot tell which build they are running, and a bug report cannot be tied
+to a release.
+
 ### Secrets
 
 Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from a live mesh. Examples only (e.g. `unifi-secrets.json.example`).

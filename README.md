@@ -157,6 +157,24 @@ Empty inventory writes are refused. Setup/form saves go through `inventory_cli.p
 
 ---
 
+### Collector pace (laptops)
+
+The collector is gated so a closed panel is not a permanent background scan:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `homeGatewayMac` | unset | When set and the current default gateway's MAC does not match, probing **pauses**. Keeps your lab's hostnames off coffee-shop wifi. Opening the panel probes anyway |
+| `batteryIntervalSec` | `300` | Probe interval on battery while the panel is closed |
+| `batteryBackoff` | `true` | `false` restores the old always-on pace |
+| `closedIntervalSec` | unset | Explicit panel-closed interval on mains |
+
+Open the panel and you always get the full `probeIntervalSec` pace. A desktop with
+no battery and no `homeGatewayMac` behaves exactly as before.
+
+Empty inventory writes are refused. Setup/form saves go through `inventory_cli.py` only when you act — nothing silent.
+
+---
+
 ## Remove
 
 ```bash

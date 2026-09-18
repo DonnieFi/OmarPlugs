@@ -145,6 +145,94 @@ def append_probe_sample(
     return str(prev) if prev is not None else None
 
 
+def recent_events(history: dict, limit: int = 6,
+                  known: set[str] | None = None) -> list[dict]:
+    """Newest-first status transitions, one row per node, newest per node kept.
+
+    The events ring already records every flap; nothing surfaced it, so a box
+    bouncing up and down every few minutes looked identical to a healthy one.
+
+    Collapsing by node matters as much as surfacing it: a single sleeping phone
+    produces a transition every few minutes, so the raw newest-first ring is
+    entirely that phone and every other change on the network is pushed out of
+    a six-row strip. Each node gets one row, its latest transition, carrying
+    `changes` so "flipped forty times" is still visible in the row it earned.
+    """
+    events = history.get("events") if isinstance(history, dict) else None
+    if not isinstance(events, list):
+        return []
+    rows = [e for e in events if isinstance(e, dict) and e.get("id") and e.get("to")]
+    if known is not None:
+        # The ring retains 24h, so it outlives a node. A device that has been
+        # deleted from the inventory was still reported as "just changed", under
+        # its raw id, because nothing was left to give it a name.
+        rows = [e for e in rows if str(e.get("id")) in known]
+    rows.sort(key=lambda e: str(e.get("ts") or ""), reverse=True)
+
+    counts: dict[str, int] = {}
+    for e in rows:
+        nid = str(e.get("id") or "")
+        counts[nid] = counts.get(nid, 0) + 1
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for e in rows:
+        nid = str(e.get("id") or "")
+        if nid in seen:
+            continue
+        seen.add(nid)
+        out.append({
+            "ts": str(e.get("ts") or ""),
+            "id": nid,
+            "from": str(e.get("from") or "unknown"),
+            "to": str(e.get("to") or "unknown"),
+            "changes": counts.get(nid, 1),
+        })
+        if len(out) >= max(0, int(limit)):
+            break
+    return out
+
+
+def flap_counts(history: dict, within_hours: float = 1.0,
+                known: set[str] | None = None) -> dict[str, int]:
+    """Transitions per node in the recent window. A high count is instability."""
+    events = history.get("events") if isinstance(history, dict) else None
+    if not isinstance(events, list):
+        return {}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=float(within_hours))
+    counts: dict[str, int] = {}
+    for e in events:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        if known is not None and str(e.get("id")) not in known:
+            continue
+        when = _parse_ts(str(e.get("ts") or ""))
+        if when is None or when < cutoff:
+            continue
+        counts[str(e["id"])] = counts.get(str(e["id"]), 0) + 1
+    return counts
+
+
+def sparkline_batch(history: dict, node_ids: list[str], n: int = 32) -> dict:
+    """Every series the panel needs, in one read of the history we already hold.
+
+    Each Sparkline used to launch `history_cli.py` every four seconds and parse
+    the whole history file again, so a lab of forty rows meant roughly ten
+    Python processes a second to draw some lines.
+    """
+    out: dict[str, dict] = {}
+    for node_id in node_ids or []:
+        nid = str(node_id or "")
+        if not nid or nid in out:
+            continue
+        payload = sparkline_payload(history, nid, n)
+        if any(v is not None for v in payload["values"]) or any(
+            v is not None for v in payload["rx_bps"]
+        ):
+            out[nid] = {"values": payload["values"], "rx_bps": payload["rx_bps"]}
+    return out
+
+
 def save_history(history: dict, path: Path | None = None) -> Path:
     return atomic_write_json(path or history_path(), history, indent=None)
 

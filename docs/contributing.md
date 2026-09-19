@@ -1,14 +1,14 @@
-# Agent Instructions
+# Contributing to Lanarchy
 
-**Lanarchy** — Omarchy Quickshell bar plugin (`donnie.homelab-mesh`). This repository root *is* the plugin (marketplace layout: `manifest.json` at root).
+Lanarchy (`donnie.homelab-mesh`) is an Omarchy Quickshell bar plugin. This repository root *is* the plugin (marketplace layout: `manifest.json` at root).
 
-`CLAUDE.md` is a pointer here — keep project guidance in this file only.
+Agent instruction files (`AGENTS.md`, `CLAUDE.md`, and similar) must not live in this tree. `omarchy plugin add` installs the repo under `~/.config/omarchy/plugins/`, and coding agents can treat those filenames as trusted workspace policy.
 
 ## Layout
 
 - `Panel.qml` + Python collectors — the plugin
 - `README.md` — Install · Usage · Configure · Remove
-- `docs/` — architecture and panel-only screenshots (`docs/screenshots/*-0.X.Y.png`, keep in sync with `preview.png`)
+- `docs/` — architecture, this guide, and panel-only screenshots (`docs/screenshots/*-0.X.Y.png`, keep in sync with `preview.png`)
 - Runtime state is `~/.local/state/lanarchy/`, not the plugin tree — see `plugin_paths.state_dir()`
 - Dotfiles (`.agents/`, `.beads/`, `.cursor/`, …) are gitignored — do not commit them
 
@@ -16,12 +16,12 @@
 
 Before changing behaviour, read:
 
-- [`README.md`](README.md) — install, Search network, IPC
-- [`docs/architecture.md`](docs/architecture.md) — inventory / history / notify sidecars
+- [`README.md`](../README.md) — install, Search network, IPC
+- [`architecture.md`](architecture.md) — inventory / history / notify sidecars
 
 Runtime install path (usually a symlink to this tree):
 
-`~/.config/omarchy/plugins/donnie.homelab-mesh/` (or a local symlink of that name)
+`~/.config/omarchy/plugins/donnie.homelab-mesh/`
 
 ### Tests
 
@@ -59,7 +59,6 @@ Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from 
 ### Git
 
 - Remote for this repo: `github` → `DonnieFi/OmarPlugs` (must be **public** for marketplace).
-- Commit and push only when the user asks.
 - Keep commits atomic; do not mix plugin code with unrelated docs unless asked.
 
 ## Style

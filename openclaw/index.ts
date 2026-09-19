@@ -25,9 +25,6 @@ export default defineFeaturePlugin({
   setup(api) {
     const stateDir = defaultLanarchyStateDir();
 
-    // The native widget uses this directly. The feature operation below keeps
-    // the same bounded read available through OpenClaw's typed session-action
-    // transport, without making the browser read a file or start a probe.
     api.registerGatewayMethod(
       "lanarchy.snapshot",
       async ({ params, respond }) => {
@@ -44,8 +41,6 @@ export default defineFeaturePlugin({
         try {
           respond(true, readLanarchyDashboardSnapshot(stateDir));
         } catch (error) {
-          // Do not echo paths, raw JSON, or parser details into the Gateway
-          // response. The dashboard only needs to know that the read failed.
           const message = error instanceof Error ? error.message : "Lanarchy snapshot unavailable";
           respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, message));
         }

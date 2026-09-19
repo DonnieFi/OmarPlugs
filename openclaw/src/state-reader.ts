@@ -10,7 +10,6 @@ export function defaultLanarchyStateDir(): string {
   return join(xdgStateHome || join(homedir(), ".local", "state"), "lanarchy");
 }
 
-/** Read only the daemon's atomic last-glance file; never run a collector here. */
 export function readLanarchySnapshot(stateDir: string): unknown {
   const snapshotPath = join(stateDir, SNAPSHOT_FILE);
   let size: number;

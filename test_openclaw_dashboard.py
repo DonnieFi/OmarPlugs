@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Contract checks for the optional OpenClaw dashboard package."""
 from __future__ import annotations
 
 import json
@@ -41,11 +40,14 @@ def main() -> int:
         assert marker in entry, marker
     for marker in (
         "MAX_SNAPSHOT_BYTES",
-        "snapshot.json",
-        "never run a collector",
+        "SNAPSHOT_FILE",
+        "readFileSync",
+        "statSync",
     ):
         assert marker in reader, marker
-    for marker in ("MAX_NODES", "MAX_EVENTS", "projectLanarchySnapshot"):
+    for forbidden in ("probe.py", "spawn", "execFile", "child_process"):
+        assert forbidden not in reader, forbidden
+    for marker in ("MAX_NODES", "MAX_EVENTS", "projectLanarchySnapshot", "safeDashboardLabel"):
         assert marker in contract, marker
     for forbidden in ("row.ip", "row.mac", "row.public_ip", "raw.unifi"):
         assert forbidden not in contract, forbidden
@@ -59,7 +61,7 @@ def main() -> int:
         '"lanarchy.snapshot"',
         "REFRESH_MS = 15_000",
         "operator.read",
-        "aria-label=\"Lanarchy homelab dashboard\"",
+        'aria-label="Lanarchy homelab dashboard"',
     ):
         assert marker in widget, marker
     assert not (plugin_dir / "src" / "http.ts").exists()

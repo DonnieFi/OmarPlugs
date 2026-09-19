@@ -25,6 +25,13 @@ export default defineFeaturePlugin({
   setup(api) {
     const stateDir = defaultLanarchyStateDir();
 
+    api.session.controls.registerControlUiDescriptor({
+      surface: "widget",
+      id: "mesh",
+      label: "Lanarchy mesh",
+      requiredScopes: ["operator.read"],
+    });
+
     api.registerGatewayMethod(
       "lanarchy.snapshot",
       async ({ params, respond }) => {

@@ -36,6 +36,9 @@ def main() -> int:
         'scope: "operator.read"',
         "readLanarchyDashboardSnapshot(stateDir)",
         "defineFeaturePlugin",
+        'surface: "widget"',
+        'id: "mesh"',
+        "registerControlUiDescriptor",
     ):
         assert marker in entry, marker
     for marker in (

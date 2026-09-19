@@ -1,0 +1,36 @@
+{
+  "id": "lanarchy",
+  "categories": [
+    "gateway"
+  ],
+  "name": "Lanarchy",
+  "description": "Read-only OpenClaw dashboard for Lanarchy homelab health and topology.",
+  "activation": {
+    "onStartup": true
+  },
+  "enabledByDefault": false,
+  "dashboard": {
+    "dataBindings": [
+      {
+        "id": "snapshot",
+        "method": "lanarchy.snapshot",
+        "description": "Read the bounded latest Lanarchy health snapshot."
+      }
+    ]
+  },
+  "version": "0.5.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "controlUi": {
+    "entry": "dist/control-ui/b892859a6273c4c9aa61075ff885befe053e4e89f3c0285e29d960815bf97676/index.js",
+    "styles": [
+      "dist/control-ui/b892859a6273c4c9aa61075ff885befe053e4e89f3c0285e29d960815bf97676/index.css"
+    ]
+  },
+  "contracts": {
+    "tools": []
+  }
+}

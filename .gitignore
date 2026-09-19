@@ -37,6 +37,10 @@ snapshot.json
 history.json*
 notify-state.json
 
+# Optional OpenClaw package build/install artifacts
+openclaw/node_modules/
+openclaw/dist/
+
 # Scratch
 *.tmp
 *.swp

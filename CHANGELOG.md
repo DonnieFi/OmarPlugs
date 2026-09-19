@@ -3,6 +3,11 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.5.0 — 2026-09-18
+
+- Native `lanarchy:mesh` widget with authenticated read-only topology, machine, service, gateway, WAN, arrival, and event views
+- Dashboard reuses the collector's `~/.local/state/lanarchy/snapshot.json` through a bounded, redacted `lanarchy.snapshot` read method
+
 ## 0.4.0 — 2026-09-18
 
 - Runtime state under `$XDG_STATE_HOME/lanarchy` (no more plugin-tree hot-reload storm); shipped starter is `inventory.default.json`

@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -90,6 +90,34 @@ Shipped `inventory.default.json` is a tiny localhost starter (local telemetry on
 `unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
 
 ---
+
+## OpenClaw dashboard
+
+Lanarchy can also appear as a live, read-only native widget in the OpenClaw
+Control UI. The optional package under [`openclaw/`](openclaw/) reads the same
+runtime `snapshot.json` as the Omarchy panel, so there is one collector and one
+health model rather than a second set of probes.
+
+Install the optional dashboard plugin from this checkout on the same host as the
+OpenClaw Gateway:
+
+```bash
+cd openclaw
+npm install
+npm run build
+openclaw plugins install .
+openclaw plugins enable lanarchy
+```
+
+Enable **Settings → Labs → Custom plugin UI**, reload the Control UI, then pin
+the registered **Lanarchy mesh** widget (`lanarchy:mesh`) to a dashboard. It
+refreshes every 15 seconds, uses the Gateway's `operator.read` boundary, and
+never exposes UniFi secrets or writes inventory. The widget reads
+`$XDG_STATE_HOME/lanarchy/snapshot.json` (normally
+`~/.local/state/lanarchy/snapshot.json`).
+
+The dashboard package is optional: Omarchy users who only want the bar panel do
+not need OpenClaw installed.
 
 ## Usage
 
@@ -266,6 +294,7 @@ That disables and removes the plugin checkout/symlink. Runtime state under `~/.l
 | UniFi OS API key | optional | Named wired machines for Search |
 | `iperf3` | optional | Speedtest fallback only if already installed |
 | SSH | optional | Machine telemetry / talkers / remote speedtest |
+| OpenClaw Gateway | optional | Only for the live Control UI dashboard in `openclaw/` |
 
 ---
 
@@ -281,7 +310,7 @@ omarchy-shell lanarchy map
 omarchy-shell lanarchy list
 omarchy-shell lanarchy setup
 omarchy-shell lanarchy refresh
-omarchy-shell lanarchy version          # → 0.4.0 from manifest.json
+omarchy-shell lanarchy version          # → 0.5.0 from manifest.json
 omarchy-shell lanarchy status           # → downs / muted / tracked · as_of
 omarchy-shell lanarchy barDisplay downs
 omarchy-shell lanarchy rename <mac> "Kitchen"

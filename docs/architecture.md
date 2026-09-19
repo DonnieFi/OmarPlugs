@@ -30,6 +30,30 @@ This document defines the sidecar formats the panel, probe, and daemon share. Th
 
 State must not live in the plugin tree: the shell watches that directory and hot-reloads on every write. Pre-0.4 sidecars still under the plugin dir are migrated out once by `migrate_state_out_of_plugin_dir()`.
 
+## OpenClaw dashboard bridge
+
+The optional `openclaw/` package is a separate OpenClaw plugin. It does not run a
+second collector and does not read inventory or credentials. Its native
+`lanarchy:mesh` widget calls the plugin-owned, authenticated `lanarchy.snapshot`
+Gateway method. The method reads only:
+
+`~/.local/state/lanarchy/snapshot.json`
+
+The path follows `$XDG_STATE_HOME/lanarchy` when `XDG_STATE_HOME` is set.
+
+The method is read-only and requires `operator.read`. It projects the raw glance
+JSON into a bounded DTO: labels, statuses, RTT/rates, topology endpoints,
+service membership, and small event summaries. MAC addresses, IP addresses,
+client lists, UniFi data, notification state, history, arbitrary file paths,
+and secrets never cross the Gateway boundary. Missing, malformed, oversized, or
+stale snapshots become a safe unavailable/stale state rather than triggering a
+probe.
+
+The widget refreshes the same snapshot every 15 seconds, while the Lanarchy
+daemon remains the single owner of probes, history, discovery, and notification
+state. The widget is registered as `lanarchy:mesh`; setup/discovery, rename,
+Wake-on-LAN, and speed-test actions remain in the Omarchy panel.
+
 ## Inventory v2 extension
 
 Root shape stays `{ "schemaVersion": 2, "nodes": [...] }`.

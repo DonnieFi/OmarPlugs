@@ -3,6 +3,13 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.1 — 2026-09-19
+
+- State dir created/tightened to mode `0700`; UniFi secrets must be a regular owner-only `0600` file (symlink / group-other bits refused)
+- UniFi HTTP responses capped at 2 MiB so a hostile endpoint cannot fill the collector
+- README UniFi install uses `install -d -m 700` / `install -m 600`
+- Root `AGENTS.md` / `CLAUDE.md` removed from the published tree (contributor guide is `docs/contributing.md`)
+
 ## 0.4.0 — 2026-09-18
 
 - Runtime state under `$XDG_STATE_HOME/lanarchy` (no more plugin-tree hot-reload storm); shipped starter is `inventory.default.json`

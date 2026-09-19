@@ -25,9 +25,9 @@
     "properties": {}
   },
   "controlUi": {
-    "entry": "dist/control-ui/b892859a6273c4c9aa61075ff885befe053e4e89f3c0285e29d960815bf97676/index.js",
+    "entry": "dist/control-ui/695af7c6a116350c4c8a00667392fe86bdaae0f654249041c4f8732c1f9e974d/index.js",
     "styles": [
-      "dist/control-ui/b892859a6273c4c9aa61075ff885befe053e4e89f3c0285e29d960815bf97676/index.css"
+      "dist/control-ui/695af7c6a116350c4c8a00667392fe86bdaae0f654249041c4f8732c1f9e974d/index.css"
     ]
   },
   "contracts": {

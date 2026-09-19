@@ -7,7 +7,7 @@ const MAX_EVENTS = 12;
 const MAX_FLAPPING = 12;
 const MAX_SPARK_POINTS = 32;
 const STALE_AFTER_MS = 45_000;
-const MAX_TEXT = 96;
+const MAX_TEXT = 160;
 
 export type DashboardStatus = "up" | "down" | "degraded" | "unknown" | "seen";
 
@@ -16,6 +16,8 @@ export type DashboardNode = {
   label: string;
   kind: "machine" | "lan" | "proxy";
   status: DashboardStatus;
+  host: string | null;
+  ip: string | null;
   rttMs: number | null;
   rxBps: number | null;
   txBps: number | null;
@@ -46,6 +48,8 @@ export type DashboardGroup = {
 export type DashboardEndpoint = {
   label: string;
   status: DashboardStatus;
+  host: string | null;
+  ip: string | null;
   rttMs: number | null;
 };
 
@@ -132,25 +136,8 @@ function status(value: unknown): DashboardStatus {
   }
 }
 
-function isAddressLikeLabel(value: string): boolean {
-  return (
-    /^(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2}|:\d+)?$/u.test(value) ||
-    /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/iu.test(value) ||
-    (value.includes(":") && /^[0-9a-f:]+$/iu.test(value))
-  );
-}
-
-function safeDashboardLabel(value: unknown, fallback: string): string {
-  const candidate = text(value, fallback);
-  const redacted = candidate
-    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/gu, "[redacted]")
-    .replace(/\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b/giu, "[redacted]")
-    .replace(/\[?[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,}\]?/giu, "[redacted]");
-  const addressCandidate = redacted.replace(/^\[|\]$/gu, "");
-  if (isAddressLikeLabel(addressCandidate)) {
-    return fallback;
-  }
-  return redacted || fallback;
+function dashboardLabel(value: unknown, fallback: string): string {
+  return text(value, fallback) || fallback;
 }
 
 function rawStatusRow(value: unknown): RecordValue | null {
@@ -171,8 +158,10 @@ function endpoint(value: unknown, fallback: string): DashboardEndpoint | null {
     return null;
   }
   return {
-    label: safeDashboardLabel(row.label, fallback),
+    label: dashboardLabel(row.label, fallback),
     status: status(row.status),
+    host: text(row.host) || null,
+    ip: text(row.ip) || null,
     rttMs: number(row.rtt_ms),
   };
 }
@@ -193,9 +182,11 @@ function node(
   const rawOs = record(row.os);
   return {
     id: `${kind}-${index + 1}`,
-    label: safeDashboardLabel(row.label, `${kind} ${index + 1}`),
+    label: dashboardLabel(row.label, `${kind} ${index + 1}`),
     kind,
     status: status(row.status),
+    host: text(row.host) || null,
+    ip: text(row.ip) || null,
     rttMs: number(row.rtt_ms) ?? number(row.ttfb_ms) ?? number(row.connect_ms),
     rxBps: number(rates?.rx_bps),
     txBps: number(rates?.tx_bps),
@@ -206,7 +197,7 @@ function node(
           grade: text(rawLink.grade) || null,
         }
       : null,
-    os: rawOs ? safeDashboardLabel(rawOs.name ?? rawOs.release, "") || null : null,
+    os: rawOs ? dashboardLabel(rawOs.name ?? rawOs.release, "") || null : null,
     sparkline: rawId ? rawSparkline(rawSparks, rawId) : [],
   };
 }
@@ -217,7 +208,7 @@ function member(value: unknown): DashboardMember | null {
     return null;
   }
   return {
-    label: safeDashboardLabel(row.label, "Service member"),
+    label: dashboardLabel(row.label, "Service member"),
     role: text(row.role, "check"),
     status: status(row.status),
     rttMs: number(row.rtt_ms) ?? number(row.ttfb_ms) ?? number(row.connect_ms),
@@ -235,7 +226,7 @@ function group(value: unknown, index: number): DashboardGroup | null {
     .filter((item): item is DashboardMember => item !== null);
   return {
     id: `service-${index + 1}`,
-    label: safeDashboardLabel(row.label, `Service ${index + 1}`),
+    label: dashboardLabel(row.label, `Service ${index + 1}`),
     status: status(row.status),
     up: integer(row.up),
     down: integer(row.down),
@@ -279,7 +270,7 @@ function collectLabels(raw: RecordValue): Map<string, string> {
       const row = record(value);
       const id = text(row?.id);
       if (id) {
-        labels.set(id, safeDashboardLabel(row?.label, "Network node"));
+        labels.set(id, dashboardLabel(row?.label, "Network node"));
       }
     }
   }
@@ -287,23 +278,23 @@ function collectLabels(raw: RecordValue): Map<string, string> {
     const row = record(value);
     const id = text(row?.id);
     if (id) {
-      labels.set(id, safeDashboardLabel(row?.label, "Service"));
+      labels.set(id, dashboardLabel(row?.label, "Service"));
     }
     for (const child of array(row?.members)) {
       const memberRow = record(child);
       const memberId = text(memberRow?.id);
       if (memberId) {
-        labels.set(memberId, safeDashboardLabel(memberRow?.label, "Service member"));
+        labels.set(memberId, dashboardLabel(memberRow?.label, "Service member"));
       }
     }
   }
   const gateway = record(raw.gateway);
   const wan = record(raw.wan);
   if (gateway?.id) {
-    labels.set(text(gateway.id), safeDashboardLabel(gateway.label, "Gateway"));
+    labels.set(text(gateway.id), dashboardLabel(gateway.label, "Gateway"));
   }
   if (wan?.id) {
-    labels.set(text(wan.id), safeDashboardLabel(wan.label, "Internet"));
+    labels.set(text(wan.id), dashboardLabel(wan.label, "Internet"));
   }
   return labels;
 }

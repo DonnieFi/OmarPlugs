@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Lanarchy Map A — Manhattan trunk/gutter (throwaway prototype)</title>
+<style>
+  :root {
+    --text: #e8e6e3;
+    --muted: #9a9690;
+    --accent: #7fb069;
+    --board-line: rgba(232,230,227,.14);
+    --warning: #d99b32;
+    --down: #e05c5c;
+    --bg: #1a1917;
+    --card: #22211e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, sans-serif; }
+  body { padding: 16px; }
+  .note { max-width: 1080px; margin: 0 auto 10px; color: var(--muted);
+    font-size: 12px; line-height: 1.5; }
+  .note b { color: var(--text); }
+
+  /* Board cell: full dashboard width, ~8-12 rows tall */
+  .map {
+    position: relative;
+    max-width: 1080px; margin: 0 auto;
+    min-height: 480px; max-height: 640px; overflow: auto;
+    background: var(--card);
+    border: 1px solid var(--board-line); border-radius: 12px;
+    padding: 14px 16px 12px;
+  }
+  .map-head { display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 10px; }
+  .map-head strong { font-size: 13px; letter-spacing: .06em; }
+  .map-head small { color: var(--muted); font-size: 11px; }
+
+  .map-body {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px 172px;
+    gap: 0 8px;
+    align-items: start;
+  }
+  /* Machines grid (left). Row gutters are real space: --gutter reserves the lane. */
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 8px; }
+  .mrow { display: contents; }
+  .node {
+    background: rgba(232,230,227,.04);
+    border: 1px solid var(--board-line); border-radius: 8px;
+    padding: 7px 9px; min-width: 0; position: relative; z-index: 1;
+  }
+  .node .st { font-size: 9px; font-weight: 700; letter-spacing: .05em;
+    border: 1px solid var(--board-line); border-radius: 999px;
+    padding: 1px 6px; color: var(--muted); }
+  .node.up .st { color: var(--accent); border-color: rgba(127,176,105,.5); }
+  .node.down .st { color: var(--down); border-color: rgba(224,92,92,.55); }
+  .node.degraded .st { color: var(--warning); border-color: rgba(217,155,50,.55); }
+  .node.down { opacity: .75; }
+  .node strong { display: block; font-size: 12.5px; margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node small { display: block; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node .rate { color: var(--text); }
+  .gutter { height: var(--gutter, 26px); } /* the lane lives here */
+  .trunk-label { grid-column: 2; font-size: 0; } /* corridor: nothing drawn by hand */
+
+  .gw-col { position: sticky; top: 0; }
+  .node.gateway { border-color: rgba(127,176,105,.45); z-index: 1; }
+  .wan-arrow { display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    color: var(--muted); font-size: 11px; }
+  .wan-arrow .shaft { flex: 1; height: 2px; background: var(--muted); position: relative; }
+  .wan-arrow .shaft::after { content: ""; position: absolute; right: -1px; top: -4px;
+    border-left: 8px solid var(--muted); border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent; }
+
+  .lower { margin-top: 14px; border-top: 1px dashed var(--board-line); padding-top: 10px;
+    display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; position: relative; z-index: 1; }
+  .lower .node { flex: 1 1 150px; }
+  .flow-tag { font-size: 10px; color: var(--muted); width: 100%; letter-spacing: .06em; }
+
+  svg.wires { position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0; overflow: visible; }
+  svg.wires polyline.lane { fill: none; stroke: rgba(232,230,227,.28); stroke-width: 1.8; }
+  svg.wires polyline.lane.down { stroke: rgba(224,92,92,.6); }
+  svg.wires polyline.lane.hot { stroke: rgba(127,176,105,.75); stroke-width: 2.6; }
+  svg.wires circle.pkt { fill: var(--accent); }
+  .legend { display: flex; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+  .legend i { display: inline-block; width: 18px; height: 2px; background: rgba(232,230,227,.4);
+    vertical-align: middle; margin-right: 5px; }
+  .legend .hot i { background: var(--accent); }
+</style>
+</head>
+<body>
+<p class="note"><b>Map A — faithful Manhattan trunk/gutter.</b>
+Mirrors <code>Panel.qml</code>: machines grid left with a gutter lane under each row,
+vertical trunk in the reserved corridor, gateway card right of the grid, internet as an
+arrow (not a card), hub/services below. Packets animate only on measured edges
+(<code>deba</code> is hot; <code>aka</code> is down so its lane dims and carries nothing).
+Resize the window: lanes re-derive from real card geometry, like <code>recalcMapLayout</code>.</p>
+
+<div class="map" id="map">
+  <div class="map-head"><strong>LANARCHY · MAP A</strong>
+    <small>6 machines · gateway redUltra · updated 16:58:00</small></div>
+  <div class="map-body" id="mapBody">
+    <div class="grid" id="grid">
+      <div class="mrow" data-row="0">
+        <div class="node up" data-id="deba"><span class="st">UP</span>
+          <strong>deba</strong><small>192.168.1.7 · 0.4 ms</small>
+          <small class="rate">↓ 2.4 MB/s ↑ 180 kB/s ● measured</small></div>
+        <div class="node up" data-id="kiritsuke"><span class="st">UP</span>
+          <strong>kiritsuke</strong><small>192.168.1.11 · 1.2 ms</small>
+          <small>idle · no counters</small></div>
+        <div class="node down" data-id="aka"><span class="st">DOWN</span>
+          <strong>aka</strong><small>192.168.1.20 · —</small>
+          <small>last seen 16:41</small></div>
+      </div>
+      <div class="gutter" style="grid-column: 1 / -1"></div>
+      <div class="mrow" data-row="1">
+        <div class="node up" data-id="suji"><span class="st">UP</span>
+          <strong>suji</strong><small>192.168.1.23 · 8 ms</small>
+          <small>idle · no counters</small></div>
+        <div class="node up" data-id="bernie"><span class="st">UP</span>
+          <strong>bernie</strong><small>192.168.1.31 · 0.7 ms</small>
+          <small class="rate">↓ 12 kB/s ↑ 9 kB/s ● measured</small></div>
+        <div class="node degraded" data-id="frigate"><span class="st">DEGRADED</span>
+          <strong>frigate-cam</strong><small>192.168.1.50 · 64 ms</small>
+          <small>slow peer (&gt;50 ms)</small></div>
+      </div>
+      <div class="gutter" style="grid-column: 1 / -1"></div>
+    </div>
+    <div class="trunk" aria-hidden="true"></div>
+    <div class="gw-col">
+      <div class="node up gateway" data-id="gw"><span class="st">UP</span>
+        <strong>redUltra</strong><small>192.168.1.1 · gateway</small>
+        <small>RTT 1.1 ms · 6 cli</small></div>
+      <div class="wan-arrow"><span>WAN</span><span class="shaft"></span><span>Internet ↗</span></div>
+    </div>
+  </div>
+  <div class="lower" id="lower">
+    <span class="flow-tag">VIA GATEWAY ↓ REVERSE PROXY + SERVICES</span>
+    <div class="node up" data-id="caddy"><span class="st">UP</span>
+      <strong>caddy</strong><small>reverse proxy · :443</small><small>3 services</small></div>
+    <div class="node up" data-id="git"><span class="st">UP</span>
+      <strong>git.lan</strong><small>via caddy · 1.7 ms</small></div>
+    <div class="node up" data-id="ha"><span class="st">UP</span>
+      <strong>ha.lan</strong><small>via caddy · 2.2 ms</small></div>
+    <div class="node degraded" data-id="bernie-api"><span class="st">DEGRADED</span>
+      <strong>bernie-api</strong><small>via caddy · 210 ms</small></div>
+  </div>
+  <svg class="wires" id="wires"></svg>
+  <div class="legend"><span><i></i>unmeasured uplink</span>
+    <span class="hot"><i></i>measured flow (packets = counted bytes)</span>
+    <span style="color:var(--down)">─ down dims its lane, carries nothing</span></div>
+</div>
+
+<script>
+// Fixture: measured edges keyed by node id (rx_bps). Unmeasured => static lane.
+const MEASURED = { deba: 2_400_000, bernie: 12_000 };
+const DOWN = new Set(["aka"]);
+const svg = document.getElementById("wires");
+const map = document.getElementById("map");
+const NS = "http://www.w3.org/2000/svg";
+let packets = [];
+
+function flowSpeed(bps) { // port of flowSpeedPxPerSec
+  if (bps < 1000) return 0;
+  const t = Math.min(1, (Math.log10(1 + bps / 1000)) / 3.5);
+  return 12 + 188 * t;
+}
+function packetCount(bps) { // port of flowPacketCount
+  if (bps < 1000) return 0;
+  return Math.max(1, Math.min(6, 1 + Math.round(Math.log10(bps / 1000) * 1.8)));
+}
+function center(el, ref) {
+  const r = el.getBoundingClientRect(), m = map.getBoundingClientRect();
+  return { x: r.left - m.left + map.scrollLeft, y: r.top - m.top + map.scrollTop,
+           w: r.width, h: r.height };
+}
+// machineUplinkPoints port: down out of card -> own row gutter lane ->
+// right along lane -> down trunk corridor -> right into gateway midline.
+function uplink(from, gw, laneY, trunkX) {
+  const aCx = from.x + from.w / 2, aBottom = from.y + from.h;
+  const enterY = gw.y + gw.h / 2, enterX = gw.x;
+  return [
+    [aCx, aBottom], [aCx, laneY], [trunkX, laneY],
+    [trunkX, enterY], [enterX, enterY]
+  ];
+}
+function pts(s) { return s.map(p => p.join(",")).join(" "); }
+function segLens(p) {
+  const L = [0];
+  for (let i = 1; i < p.length; i++)
+    L.push(L[i-1] + Math.hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1]));
+  return L;
+}
+function pointAt(p, L, d) {
+  const total = L[L.length-1];
+  d = ((d % total) + total) % total;
+  for (let i = 1; i < p.length; i++) {
+    if (d <= L[i]) {
+      const t = (d - L[i-1]) / Math.max(1e-6, L[i] - L[i-1]);
+      return [p[i-1][0] + (p[i][0]-p[i-1][0])*t, p[i-1][1] + (p[i][1]-p[i-1][1])*t];
+    }
+  }
+  return p[p.length-1];
+}
+
+function rebuild() {
+  svg.innerHTML = ""; packets = [];
+  const rows = [...document.querySelectorAll("#grid .mrow")];
+  const gutters = [...document.querySelectorAll("#grid .gutter")];
+  const gw = center(document.querySelector('[data-id="gw"]'));
+  const trunkX = center(document.querySelector(".trunk")).x + 15;
+  rows.forEach((row, ri) => {
+    const g = center(gutters[ri]);
+    const laneY = g.y + g.h / 2;
+    [...row.querySelectorAll(".node")].forEach(card => {
+      const b = center(card);
+      const id = card.dataset.id;
+      const route = uplink(b, gw, laneY, trunkX);
+      const bps = MEASURED[id] || 0;
+      const down = DOWN.has(id);
+      const pl = document.createElementNS(NS, "polyline");
+      pl.setAttribute("points", pts(route));
+      pl.setAttribute("class", "lane" + (down ? " down" : bps ? " hot" : ""));
+      svg.appendChild(pl);
+      if (bps && !down) { // packets ONLY when measured — edgeFlow contract
+        const L = segLens(route), n = packetCount(bps), sp = flowSpeed(bps);
+        for (let k = 0; k < n; k++) {
+          const c = document.createElementNS(NS, "circle");
+          c.setAttribute("r", "3"); c.setAttribute("class", "pkt");
+          svg.appendChild(c);
+          packets.push({ el: c, route, L, off: (k / n) * L[L.length-1], sp });
+        }
+      }
+    });
+  });
+  // hub + services: gateway bottom -> down -> service top (mapEdgePoints aAbove branch)
+  const gwB = center(document.querySelector('[data-id="gw"]'));
+  [...document.querySelectorAll("#lower .node")].forEach(card => {
+    const b = center(card);
+    const aCx = gwB.x + gwB.w / 2, bCx = b.x + b.w / 2;
+    const aBot = gwB.y + gwB.h, midY = (aBot + b.y) / 2;
+    const route = [[aCx, aBot], [aCx, midY], [bCx, midY], [bCx, b.y]];
+    const pl = document.createElementNS(NS, "polyline");
+    pl.setAttribute("points", pts(route));
+    pl.setAttribute("class", "lane");
+    pl.style.strokeDasharray = "4 4";
+    svg.appendChild(pl);
+  });
+  const r = map.getBoundingClientRect();
+  svg.setAttribute("viewBox", `0 0 ${map.scrollWidth} ${map.scrollHeight}`);
+  svg.style.height = map.scrollHeight + "px";
+}
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  for (const p of packets) {
+    p.off += p.sp * dt;
+    const [x, y] = pointAt(p.route, p.L, p.off);
+    p.el.setAttribute("cx", x); p.el.setAttribute("cy", y);
+  }
+  requestAnimationFrame(tick);
+}
+new ResizeObserver(rebuild).observe(map);
+rebuild(); requestAnimationFrame(tick);
+</script>
+</body>
+</html>

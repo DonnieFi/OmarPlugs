@@ -16,29 +16,23 @@
 
 .lanarchy-widget--state small,
 .lanarchy-widget__header small,
-.lanarchy-topology small,
-.lanarchy-row small,
-.lanarchy-widget__footer {
+.lanarchy-widget__footer,
+.lanarchy-map__head small,
+.lanarchy-node small,
+.lanarchy-legend {
   color: var(--muted);
   font-size: 10px;
 }
 
-.lanarchy-widget__header,
-.lanarchy-widget__footer,
-.lanarchy-row,
-.lanarchy-topology__node {
+.lanarchy-widget__header {
   align-items: center;
   display: flex;
   gap: 8px;
+  justify-content: space-between;
   min-width: 0;
 }
 
-.lanarchy-widget__header {
-  justify-content: space-between;
-}
-
-.lanarchy-widget__header > div,
-.lanarchy-row__main {
+.lanarchy-widget__header > div {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -49,25 +43,25 @@
 }
 
 .lanarchy-pill,
-.lanarchy-status {
+.lanarchy-node__st {
   border: 1px solid var(--board-line);
   border-radius: 999px;
   color: var(--muted);
   flex: 0 0 auto;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   padding: 3px 7px;
 }
 
 .lanarchy-pill--stale,
-.lanarchy-status--down,
-.lanarchy-status--degraded {
+.lanarchy-node--down .lanarchy-node__st,
+.lanarchy-node--degraded .lanarchy-node__st {
   border-color: color-mix(in srgb, var(--warning, #d99b32) 55%, transparent);
   color: var(--warning, #d99b32);
 }
 
-.lanarchy-status--up {
+.lanarchy-node--up .lanarchy-node__st {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
 }
@@ -92,96 +86,190 @@
   font-size: 16px;
 }
 
-.lanarchy-metrics span,
-.lanarchy-section h2 {
+.lanarchy-metrics span {
   color: var(--muted);
   font-size: 9px;
   text-transform: uppercase;
 }
 
-.lanarchy-topology {
-  align-items: stretch;
-  display: grid;
-  gap: 6px;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
-}
-
-.lanarchy-topology__node {
-  align-items: flex-start;
+.lanarchy-map {
   background: color-mix(in srgb, var(--text) 3%, transparent);
   border: 1px solid var(--board-line);
-  border-radius: 8px;
-  flex-direction: column;
-  gap: 3px;
-  justify-content: center;
-  padding: 8px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  min-height: 280px;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  position: relative;
 }
 
-.lanarchy-topology__node strong,
-.lanarchy-topology__node small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.lanarchy-map__head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.lanarchy-map__head strong {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.lanarchy-map__board {
+  margin: 0 auto;
+  min-height: 240px;
+  position: relative;
+}
+
+.lanarchy-wires {
+  height: 100%;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
   width: 100%;
+  z-index: 0;
 }
 
-.lanarchy-topology__count {
-  color: var(--accent);
-  font-size: 16px;
-  font-weight: 700;
+.lanarchy-lane {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 28%, transparent);
+  stroke-width: 1.8;
 }
 
-.lanarchy-topology__link {
-  align-self: center;
-  color: var(--muted);
+.lanarchy-lane--dash {
+  stroke-dasharray: 4 4;
 }
 
-.lanarchy-section {
+.lanarchy-lane--down {
+  stroke: color-mix(in srgb, #e05c5c 60%, transparent);
+}
+
+.lanarchy-lane--hot {
+  stroke: color-mix(in srgb, var(--accent) 75%, transparent);
+  stroke-width: 2.6;
+}
+
+.lanarchy-pkt {
+  fill: var(--accent);
+}
+
+.lanarchy-node-wrap {
+  position: absolute;
+  z-index: 1;
+}
+
+.lanarchy-node {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: 1px solid var(--board-line);
+  border-radius: 8px;
+  box-sizing: border-box;
   display: grid;
-  gap: 5px;
+  gap: 2px;
+  height: 100%;
   min-width: 0;
+  padding: 7px 9px;
+  position: relative;
 }
 
-.lanarchy-section h2 {
-  margin: 0;
+.lanarchy-node--gateway {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.lanarchy-list {
-  display: grid;
-  gap: 4px;
-  list-style: none;
-  margin: 0;
-  min-width: 0;
-  padding: 0;
+.lanarchy-node--down {
+  opacity: 0.75;
 }
 
-.lanarchy-row {
-  border-bottom: 1px solid color-mix(in srgb, var(--board-line) 60%, transparent);
-  padding: 4px 0;
-}
-
-.lanarchy-row__main {
-  flex: 1 1 auto;
-  overflow: hidden;
-}
-
-.lanarchy-row__main strong,
-.lanarchy-row__main small {
+.lanarchy-node strong {
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.lanarchy-row__metric {
-  color: var(--muted);
-  flex: 0 0 auto;
+.lanarchy-node small {
   font-size: 10px;
-  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lanarchy-node__rate {
+  color: var(--text);
+}
+
+.lanarchy-wan {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+  position: absolute;
+  z-index: 1;
+}
+
+.lanarchy-wan__shaft {
+  background: var(--muted);
+  flex: 1;
+  height: 2px;
+  position: relative;
+}
+
+.lanarchy-wan__shaft::after {
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid var(--muted);
+  border-top: 5px solid transparent;
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -4px;
+}
+
+.lanarchy-lower-tag {
+  color: var(--muted);
+  font-size: 10px;
+  left: 16px;
+  letter-spacing: 0.06em;
+  position: absolute;
+  z-index: 1;
+}
+
+.lanarchy-legend {
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.lanarchy-legend i {
+  background: color-mix(in srgb, var(--text) 40%, transparent);
+  display: inline-block;
+  height: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  width: 18px;
+}
+
+.lanarchy-legend__hot i {
+  background: var(--accent);
+}
+
+.lanarchy-legend__down {
+  color: #e05c5c;
 }
 
 .lanarchy-widget__footer {
-  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 10px;
   gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -192,24 +280,7 @@
 }
 
 @media (max-width: 460px) {
-  .lanarchy-topology {
-    grid-template-columns: 1fr;
-  }
-
-  .lanarchy-topology__link {
-    justify-self: center;
-    transform: rotate(90deg);
-  }
-
-  .lanarchy-row {
-    flex-wrap: wrap;
-  }
-
-  .lanarchy-row__main {
-    min-width: calc(100% - 80px);
-  }
-
-  .lanarchy-row__metric:last-child {
-    margin-left: 28px;
+  .lanarchy-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
